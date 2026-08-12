@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Evermore.Azeroth.Simulation</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../EasternKingdoms.Simulation/EasternKingdoms.Simulation.csproj" />
+    <ProjectReference Include="../Evermore.Lunara.Core/Evermore.Lunara.Core.csproj" />
+    <ProjectReference Include="../Evermore.Solune.Core/Evermore.Solune.Core.csproj" />
+    <ProjectReference Include="../Omega.Recursive/Omega.Recursive.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>evermore-3d</AssemblyName>
+    <RootNamespace>Evermore.ThreeD.Environment</RootNamespace>
+    <Version>0.3.0</Version>
+    <PublishAot>true</PublishAot>
+    <SelfContained>true</SelfContained>
+    <DisableTransitiveFrameworkReferenceDownloads>true</DisableTransitiveFrameworkReferenceDownloads>
+    <StripSymbols>true</StripSymbols>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Evermore.Azeroth.Simulation/Evermore.Azeroth.Simulation.csproj" />
+    <ProjectReference Include="../Omega.Recursive/Omega.Recursive.csproj" />
+  </ItemGroup>
+</Project>

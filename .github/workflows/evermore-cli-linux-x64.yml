@@ -1,0 +1,632 @@
+name: Evermore CLI linux-x64
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/evermore-cli-linux-x64.yml"
+      - "CERTIFICATION_STATUS.md"
+      - "README.md"
+      - "memory/agent-continuity.md"
+      - "memory/version-history.md"
+      - "project/Evermore.Cli/**"
+      - "project/Evermore.ThreeD.Environment/**"
+      - "project/Evermore.Azeroth.Simulation/**"
+      - "project/Evermore.Mmo.Core/**"
+      - "project/Evermore.Lunara.Core/**"
+      - "project/Evermore.Solune.Core/**"
+      - "project/Omega.Recursive/**"
+      - "project/EasternKingdoms.Simulation/**"
+      - "project/Evermore.Genetics/**"
+      - "project/QA/CliFixtures/**"
+      - "project/QA/OfflineHarness/**"
+      - "project/Directory.Build.props"
+      - "project/BUILD_STATUS.md"
+      - "project/README.md"
+      - "project/global.json"
+      - "project/QA/aot-pack-hashes.linux-x64.json"
+      - "scripts/download-aot-packs-linux-x64.sh"
+      - "tools/**"
+      - "update-bindings/update-log.jsonl"
+      - "update-bindings/workspace-manifest.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evermore-cli-linux-x64-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    name: SDK 10.0.302 / evermore / linux-x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
+      SYSTEM_COMMANDLINE_SHA512: 46c89227e1725e49fd18b4cb17aa3ad05c9dc8ca21d75ef83ed0086275c8185d745cfa69751d6e44aaba349bbfd88bb5d82c811af740ea4bca139126ad571a5d
+      CLI_EVIDENCE_DIR: update-bindings/validation/evermore-cli-candidate-linux-x64
+      THREED_EVIDENCE_DIR: update-bindings/validation/evermore-3d-candidate-linux-x64
+    steps:
+      - name: Check out proposed source state
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.302
+
+      - name: Install Native AOT prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang zlib1g-dev binutils file unzip curl
+
+      - name: Capture toolchain
+        run: |
+          mkdir -p logs "$CLI_EVIDENCE_DIR" "$THREED_EVIDENCE_DIR"
+          (cd project && dotnet --info) | tee logs/cli-dotnet-info.txt
+          clang --version | tee logs/cli-clang-version.txt
+          ld --version | head -n 1 | tee logs/cli-linker-version.txt
+          uname -a | tee logs/cli-host.txt
+
+      - name: Verify System.CommandLine package
+        run: |
+          CLI_FEED="$RUNNER_TEMP/cli-feed"
+          mkdir -p "$CLI_FEED"
+          curl --fail --location --retry 3 \
+            --output "$CLI_FEED/system.commandline.2.0.10.nupkg" \
+            https://api.nuget.org/v3-flatcontainer/system.commandline/2.0.10/system.commandline.2.0.10.nupkg
+          printf '%s  %s\n' "$SYSTEM_COMMANDLINE_SHA512" "$CLI_FEED/system.commandline.2.0.10.nupkg" \
+            | sha512sum --check
+          dotnet nuget verify "$CLI_FEED/system.commandline.2.0.10.nupkg" --all \
+            | tee logs/cli-system-commandline-signature.txt
+
+      - name: Download and stage exact Native AOT packs
+        run: |
+          AOT_PACKAGES="$RUNNER_TEMP/aot-packs"
+          AOT_FEED="$RUNNER_TEMP/aot-feed"
+          ./scripts/download-aot-packs-linux-x64.sh "$AOT_PACKAGES"
+          python3 tools/resolve_aot_requirements.py \
+            --dotnet-root "$(dirname "$(readlink -f "$(command -v dotnet)")")" \
+            --project project/Evermore.Cli/Evermore.Cli.csproj \
+            --tfm net10.0 --rid linux-x64 \
+            --output "$CLI_EVIDENCE_DIR/aot-requirements.json"
+          python3 tools/resolve_aot_requirements.py \
+            --dotnet-root "$(dirname "$(readlink -f "$(command -v dotnet)")")" \
+            --project project/Evermore.ThreeD.Environment/Evermore.ThreeD.Environment.csproj \
+            --tfm net10.0 --rid linux-x64 \
+            --output "$THREED_EVIDENCE_DIR/aot-requirements.json"
+          python3 tools/stage_aot_feed.py \
+            --requirements "$CLI_EVIDENCE_DIR/aot-requirements.json" \
+            --packages "$AOT_PACKAGES" --feed "$AOT_FEED" \
+            --hash-manifest project/QA/aot-pack-hashes.linux-x64.json --require-hashes \
+            --verify-signatures --dotnet "$(command -v dotnet)" \
+            | tee "$CLI_EVIDENCE_DIR/aot-feed-staging.json"
+
+      - name: Validate Native AOT project and source
+        run: |
+          python3 tools/validate_dotnet_native_workspace.py project \
+            --project Evermore.Cli/Evermore.Cli.csproj --target-framework net10.0 \
+            | tee logs/cli-workspace-validation.txt
+          python3 tools/validate_native_aot_project.py project \
+            --project Evermore.Cli/Evermore.Cli.csproj --target-framework net10.0 \
+            --kind app --strict --json \
+            | tee "$CLI_EVIDENCE_DIR/project-validation.json"
+          python3 tools/validate_native_aot_project.py project \
+            --project Evermore.Lunara.Core/Evermore.Lunara.Core.csproj --target-framework net10.0 \
+            --kind library --strict --json \
+            | tee "$CLI_EVIDENCE_DIR/lunara-project-validation.json"
+          python3 tools/validate_native_aot_project.py project \
+            --project Evermore.Solune.Core/Evermore.Solune.Core.csproj --target-framework net10.0 \
+            --kind library --strict --json \
+            | tee "$CLI_EVIDENCE_DIR/solune-project-validation.json"
+          python3 tools/validate_native_aot_project.py project \
+            --project Evermore.Azeroth.Simulation/Evermore.Azeroth.Simulation.csproj --target-framework net10.0 \
+            --kind library --strict --json \
+            | tee "$CLI_EVIDENCE_DIR/azeroth-project-validation.json"
+          python3 tools/validate_native_aot_project.py project \
+            --project Evermore.Mmo.Core/Evermore.Mmo.Core.csproj --target-framework net10.0 \
+            --kind library --strict --json \
+            | tee "$CLI_EVIDENCE_DIR/mmo-project-validation.json"
+          python3 tools/validate_native_aot_project.py project \
+            --project Evermore.ThreeD.Environment/Evermore.ThreeD.Environment.csproj --target-framework net10.0 \
+            --kind app --strict --json \
+            | tee "$THREED_EVIDENCE_DIR/project-validation.json"
+          python3 tools/aot_source_audit.py project \
+            --output "$CLI_EVIDENCE_DIR/source-audit.json"
+
+      - name: Run managed regression suite
+        run: |
+          cp project/Evermore.Cli/packages.lock.json "$RUNNER_TEMP/evermore-native.packages.lock.json"
+          dotnet restore project/QA/OfflineHarness/QAHarness.csproj \
+            --source "$RUNNER_TEMP/cli-feed" --source "$RUNNER_TEMP/aot-feed" \
+            --force-evaluate -p:RestoreLockedMode=false \
+            -p:DisableTransitiveFrameworkReferenceDownloads=true \
+            -p:PublishAot=false -p:SelfContained=true -p:IsAotCompatible=false \
+            -p:EnableTrimAnalyzer=false -p:EnableAotAnalyzer=false
+          dotnet build project/QA/OfflineHarness/QAHarness.csproj -c Release --no-restore \
+            -p:PublishAot=false -p:SelfContained=true -p:IsAotCompatible=false \
+            -p:EnableTrimAnalyzer=false -p:EnableAotAnalyzer=false
+          dotnet run --project project/QA/OfflineHarness/QAHarness.csproj -c Release --no-build \
+            -p:PublishAot=false -p:SelfContained=true -p:IsAotCompatible=false \
+            -p:EnableTrimAnalyzer=false -p:EnableAotAnalyzer=false \
+            | tee logs/cli-managed-tests.txt
+          grep -F "SUMMARY " logs/cli-managed-tests.txt \
+            | tail -n 1 | tee "$CLI_EVIDENCE_DIR/managed-test-summary.txt"
+          cp "$RUNNER_TEMP/evermore-native.packages.lock.json" project/Evermore.Cli/packages.lock.json
+
+      - name: Publish, inspect, and execute Native AOT CLI
+        run: |
+          DOTNET_ROOT_DIR="$(dirname "$(readlink -f "$(command -v dotnet)")")"
+          python3 tools/certify_native_aot.py \
+            --dotnet-root "$DOTNET_ROOT_DIR" \
+            --project project/Evermore.Cli/Evermore.Cli.csproj \
+            --rid linux-x64 \
+            --feed "$RUNNER_TEMP/aot-feed" \
+            --source "$RUNNER_TEMP/cli-feed" \
+            --evidence-dir "$CLI_EVIDENCE_DIR" \
+            --configuration-validation-pass --managed-validation-pass \
+            --smoke-arg status --smoke-arg=--format --smoke-arg json
+
+          python3 tools/certify_native_aot.py \
+            --dotnet-root "$DOTNET_ROOT_DIR" \
+            --project project/Evermore.ThreeD.Environment/Evermore.ThreeD.Environment.csproj \
+            --rid linux-x64 \
+            --feed "$RUNNER_TEMP/aot-feed" \
+            --source "$RUNNER_TEMP/cli-feed" \
+            --evidence-dir "$THREED_EVIDENCE_DIR" \
+            --configuration-validation-pass --managed-validation-pass \
+            --smoke-arg status
+
+          CLI=project/Evermore.Cli/bin/Release/net10.0/linux-x64/publish/evermore
+          THREED=project/Evermore.ThreeD.Environment/bin/Release/net10.0/linux-x64/publish/evermore-3d
+          SANITIZED_PATH=/usr/bin:/bin
+          sha256sum project/QA/CliFixtures/*.json | sort > logs/cli-native-inputs-before.sha256
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" status --format json \
+            | tee logs/cli-native-status.json "$CLI_EVIDENCE_DIR/native-status.json"
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" verify replay --input project/QA/CliFixtures/valid-replay.json --format json \
+            | tee logs/cli-native-replay.json "$CLI_EVIDENCE_DIR/native-replay.json"
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" verify camera --input project/QA/CliFixtures/valid-camera.json --zone zone.a --format json \
+            | tee logs/cli-native-camera.json "$CLI_EVIDENCE_DIR/native-camera.json"
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" verify scene --input project/QA/CliFixtures/valid-scene.json --zone zone.a --format json \
+            | tee logs/cli-native-scene.json "$CLI_EVIDENCE_DIR/native-scene.json"
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" omega run --generations 3 --seed 529 --format json \
+            | tee logs/cli-native-omega.json "$CLI_EVIDENCE_DIR/native-omega.json"
+          jq -e \
+            '.kind == "omega-recursive" and .status == "completed" and .seed == 529 and .population == 24' \
+            logs/cli-native-omega.json
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" lunara run --input project/QA/CliFixtures/valid-lunara.json --format json \
+            | tee logs/cli-native-lunara.json "$CLI_EVIDENCE_DIR/native-lunara.json"
+          jq -e \
+            '.schemaVersion == "evermore.lunara.moon-tide/1.0" and
+             .authority == "isolated-noncanon-local-validation" and
+             .payload.disposition == "Completed" and
+             .payload.relics[0].chargeMicros == 950000 and
+             (.payload.manifestationDirectives | length) == 1' \
+            logs/cli-native-lunara.json
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" solune run --input project/QA/CliFixtures/valid-solune.json --format json \
+            | tee logs/cli-native-solune.json "$CLI_EVIDENCE_DIR/native-solune.json"
+          jq -e \
+            '.schemaVersion == "evermore.solune.local-sun/1.0" and
+             .authority == "isolated-noncanon-contained-stellar-construct" and
+             .payload.disposition == "Completed" and
+             .payload.radiance.irradianceMilliwattsPerSquareMeter == 1361780 and
+             (.payload.operationDirectives | length) == 1' \
+            logs/cli-native-solune.json
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" azeroth regions --format json \
+            | tee logs/cli-native-azeroth-regions.json "$CLI_EVIDENCE_DIR/native-azeroth-regions.json"
+          jq -e \
+            '.schemaVersion == "evermore.azeroth.region-authority/1.0" and
+             .authority == "owner-negotiated-four-region-only" and
+             .payload.scope == "eversong-ghostlands-eastern-western-plaguelands-only" and
+             .payload.expansionPolicy == "owner-explicit-renegotiation-required" and
+             [.payload.regions[].regionName] ==
+               ["Eversong","Ghostlands","Eastern Plaguelands","Western Plaguelands"] and
+             [.payload.regions[].zoneId] ==
+               ["ek.north.eversong","ek.north.ghostlands","ek.north.eastern-plaguelands","ek.north.western-plaguelands"]' \
+            logs/cli-native-azeroth-regions.json
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" azeroth run --input project/QA/CliFixtures/valid-azeroth-simulation.json --format json \
+            | tee logs/cli-native-azeroth.json "$CLI_EVIDENCE_DIR/native-azeroth.json"
+          jq -e \
+            '.schemaVersion == "evermore.azeroth.composed-simulation/1.0" and
+             .authority == "TestHistoryOnly" and
+             .payload.disposition == "Completed" and
+             .payload.azeroth.coverage == "authorized-northern-scar-corridor" and
+             [.payload.azeroth.zones[].zoneId] ==
+               ["ek.north.eastern-plaguelands","ek.north.eversong","ek.north.ghostlands","ek.north.western-plaguelands"]' \
+            logs/cli-native-azeroth.json
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" azeroth field --input project/QA/CliFixtures/valid-azeroth-environmental-field.json --format json \
+            | tee logs/cli-native-azeroth-field.json "$CLI_EVIDENCE_DIR/native-azeroth-field.json"
+          jq -e \
+            '.schemaVersion == "evermore.azeroth.environmental-field/1.0" and
+             .authority == "TestHistoryOnly" and
+             .payload.environment.disposition == "Completed" and
+             .payload.environment.units == "normalized-micro-units" and
+             .payload.environment.spatialAuthority == "authorized-zone-identifiers-only" and
+             .payload.environment.drivers.soluneIrradianceMicros == 1000000 and
+             [.payload.environment.zones[].zoneId] ==
+               ["ek.north.eastern-plaguelands","ek.north.eversong","ek.north.ghostlands","ek.north.western-plaguelands"]' \
+            logs/cli-native-azeroth-field.json
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" azeroth orbit \
+              --input project/QA/CliFixtures/valid-azeroth-environmental-field.json \
+              --azimuth-micros 125000 --elevation-micros 50000 --zoom 2 --format json \
+            | tee logs/cli-native-azeroth-orbit.json "$CLI_EVIDENCE_DIR/native-azeroth-orbit.json"
+          jq -e \
+            '.schemaVersion == "evermore.azeroth.orbital-scene/1.0" and
+             .authority == "TestHistoryOnly" and
+             .payload.classification == "ConstrainedSimulationConceptOnly" and
+             .payload.scale.linearRatio == "1.000000 : 1.000000" and
+             .payload.scale.physicalScale == "unavailable-no-authority" and
+             .payload.camera.viewportReferenceWidthMicros == 250000 and
+             [.payload.zones[].zoneId] ==
+               ["ek.north.eastern-plaguelands","ek.north.eversong","ek.north.ghostlands","ek.north.western-plaguelands"] and
+             ([.payload.zones[].globePlacement] | all(. == "missing-authored-globe-vector"))' \
+            logs/cli-native-azeroth-orbit.json
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" mmo capabilities --format json \
+            | tee logs/cli-native-mmo-capabilities.json "$CLI_EVIDENCE_DIR/native-mmo-capabilities.json"
+          jq -e \
+            '.schemaVersion == "evermore.mmo.capabilities/1.0" and
+             .authority == "implementation-status-only" and
+             .payload.version == "0.3.0" and
+             (.payload.capabilities | length) == 18 and
+             any(.payload.capabilities[];
+               .key == "economy.crafting" and .status == "ImplementedCore") and
+             any(.payload.capabilities[];
+               .key == "social.groups" and .status == "ImplementedCore") and
+             any(.payload.capabilities[];
+               .key == "content.asset-pipeline" and .status == "AdapterRequired") and
+             any(.payload.capabilities[];
+               .key == "audio.adaptive-runtime" and .status == "AdapterRequired")' \
+            logs/cli-native-mmo-capabilities.json
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" mmo demo --format json \
+            | tee logs/cli-native-mmo-demo.json "$CLI_EVIDENCE_DIR/native-mmo-demo.json"
+          jq -e \
+            '.schemaVersion == "evermore.mmo.session/1.0" and
+             .authority == "TestHistoryOnly" and
+             .payload.model == "evermore-deterministic-mmorpg-session-kernel/1.0" and
+             .payload.regionAuthority == "owner-negotiated-four-region-only" and
+             .payload.input.regionZoneId == "ek.north.eversong" and
+             .payload.finalTick == 7 and
+             .payload.character.resource == 340 and
+             .payload.character.experience == 500 and
+             .payload.character.currency == 200 and
+             .payload.character.equipment[0].slot == "MainHand" and
+             .payload.character.questJournal[0].completed == true and
+             .payload.encounter.remainingHealth == 0 and
+             .payload.encounter.defeated == true and
+             (.payload.events | length) == 10' \
+            logs/cli-native-mmo-demo.json
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" mmo economy-demo --format json \
+            | tee logs/cli-native-mmo-economy.json "$CLI_EVIDENCE_DIR/native-mmo-economy.json"
+          jq -e \
+            '.schemaVersion == "evermore.mmo.economy/1.0" and
+             .authority == "TestHistoryOnly" and
+             .payload.model == "evermore-deterministic-mmorpg-economy-kernel/1.0" and
+             .payload.regionAuthority == "owner-negotiated-four-region-only" and
+             .payload.input.regionZoneId == "ek.north.eversong" and
+             .payload.finalTick == 5 and
+             .payload.currency == 810 and
+             (.payload.inventory | length) == 2 and
+             any(.payload.inventory[];
+               .itemId == "item.runed-blade" and
+               .quantity == 1 and
+               .durability == 95) and
+             any(.payload.inventory[];
+               .itemId == "item.restoration-potion" and
+               .quantity == 1 and
+               .durability == 0) and
+             (.payload.events | length) == 7' \
+            logs/cli-native-mmo-economy.json
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$CLI" mmo group-demo --format json \
+            | tee logs/cli-native-mmo-group.json "$CLI_EVIDENCE_DIR/native-mmo-group.json"
+          jq -e \
+            '.schemaVersion == "evermore.mmo.group/1.0" and
+             .authority == "TestHistoryOnly" and
+             .payload.model == "evermore-deterministic-mmorpg-group-kernel/1.0" and
+             .payload.regionAuthority == "owner-negotiated-four-region-only" and
+             .payload.spatialAuthority == "authorized-region-identifier-only-no-coordinate-or-geometry-authority" and
+             .payload.identityAuthority == "authored-character-identifiers-only-no-authentication-or-entitlements" and
+             .payload.transportAuthority == "ordered-action-replay-only-no-presence-chat-or-network-transport" and
+             .payload.input.regionZoneId == "ek.north.eversong" and
+             .payload.finalTick == 6 and
+             .payload.leaderCharacterId == "character.lunara-healer" and
+             (.payload.members | length) == 2 and
+             any(.payload.members[];
+               .characterId == "character.azeroth-warden" and .role == "Tank") and
+             any(.payload.members[];
+               .characterId == "character.lunara-healer" and .role == "Healer") and
+             (.payload.pendingInvitations | length) == 0 and
+             .payload.readyCheck.completed == true and
+             .payload.readyCheck.allReady == true and
+             (.payload.readyCheck.responses | length) == 3 and
+             (.payload.events | length) == 14' \
+            logs/cli-native-mmo-group.json
+
+          FRAME="$RUNNER_TEMP/evermore-3d-${GITHUB_RUN_ID}.ppm"
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$THREED" status \
+            | tee logs/evermore-3d-native-status.txt "$THREED_EVIDENCE_DIR/native-status.txt"
+          grep -F "host=self-contained-native-aot" logs/evermore-3d-native-status.txt
+          grep -F "geometry=generic-globe-shell-no-authored-landmass" logs/evermore-3d-native-status.txt
+          grep -F "sandbox_dimensions=18" logs/evermore-3d-native-status.txt
+          grep -F "sandbox_max_systems=512" logs/evermore-3d-native-status.txt
+          grep -F "sandbox_max_hearthstars=512" logs/evermore-3d-native-status.txt
+          grep -F "sandbox_max_bodies=100000" logs/evermore-3d-native-status.txt
+          grep -F "sandbox_max_tick=1000000" logs/evermore-3d-native-status.txt
+          grep -F "sandbox_max_advance_ticks=10000" logs/evermore-3d-native-status.txt
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$THREED" render \
+              --input project/QA/CliFixtures/valid-azeroth-environmental-field.json \
+              --output "$FRAME" --width 128 --height 96 \
+              --azimuth-micros 125000 --elevation-micros 50000 --zoom 2 \
+            | tee logs/evermore-3d-native-render.txt "$THREED_EVIDENCE_DIR/native-render.txt"
+          test "$(stat --format=%s "$FRAME")" -eq $((14 + (128 * 96 * 3)))
+          head -c 14 "$FRAME" | cmp --silent - <(printf 'P6\n128 96\n255\n')
+          sha256sum "$FRAME" \
+            | tee logs/evermore-3d-native-frame.sha256 "$THREED_EVIDENCE_DIR/native-frame.sha256"
+
+          SANDBOX_JSON="$RUNNER_TEMP/evermore-omega-sandbox-${GITHUB_RUN_ID}.json"
+          SANDBOX_FRAME="$RUNNER_TEMP/evermore-omega-sandbox-${GITHUB_RUN_ID}.ppm"
+          ADVANCED_SANDBOX_JSON="$RUNNER_TEMP/evermore-omega-sandbox-advanced-${GITHUB_RUN_ID}.json"
+          ADVANCED_SANDBOX_FRAME="$RUNNER_TEMP/evermore-omega-sandbox-advanced-${GITHUB_RUN_ID}.ppm"
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$THREED" sandbox-create \
+              --seed 529 --generations 3 --systems 8 --worlds 4 --moons 2 \
+              --output "$SANDBOX_JSON" \
+            | tee logs/evermore-3d-native-sandbox-create.txt \
+                "$THREED_EVIDENCE_DIR/native-sandbox-create.txt"
+          grep -F "dimensions=18" logs/evermore-3d-native-sandbox-create.txt
+          grep -F "simulation_tick=0" logs/evermore-3d-native-sandbox-create.txt
+          grep -F "systems=8" logs/evermore-3d-native-sandbox-create.txt
+          grep -F "hearthstars=8" logs/evermore-3d-native-sandbox-create.txt
+          grep -F "worlds=32" logs/evermore-3d-native-sandbox-create.txt
+          grep -F "moons=64" logs/evermore-3d-native-sandbox-create.txt
+          grep -F "bodies=104" logs/evermore-3d-native-sandbox-create.txt
+          cp "$SANDBOX_JSON" "$THREED_EVIDENCE_DIR/native-omega-sandbox.json"
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$THREED" sandbox-render \
+              --input "$SANDBOX_JSON" --output "$SANDBOX_FRAME" \
+              --width 160 --height 96 --axis-x 0 --axis-y 4 --axis-depth 6 \
+            | tee logs/evermore-3d-native-sandbox-render.txt \
+                "$THREED_EVIDENCE_DIR/native-sandbox-render.txt"
+          test "$(stat --format=%s "$SANDBOX_FRAME")" -eq $((14 + (160 * 96 * 3)))
+          head -c 14 "$SANDBOX_FRAME" | cmp --silent - <(printf 'P6\n160 96\n255\n')
+          sha256sum "$SANDBOX_FRAME" \
+            | tee logs/evermore-3d-native-sandbox-frame.sha256 \
+                "$THREED_EVIDENCE_DIR/native-sandbox-frame.sha256"
+
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$THREED" sandbox-advance \
+              --input "$SANDBOX_JSON" --ticks 37 --output "$ADVANCED_SANDBOX_JSON" \
+            | tee logs/evermore-3d-native-sandbox-advance.txt \
+                "$THREED_EVIDENCE_DIR/native-sandbox-advance.txt"
+          grep -F "previous_tick=0" logs/evermore-3d-native-sandbox-advance.txt
+          grep -F "advanced_ticks=37" logs/evermore-3d-native-sandbox-advance.txt
+          grep -F "simulation_tick=37" logs/evermore-3d-native-sandbox-advance.txt
+          jq -e \
+            '.schemaVersion == "evermore.omega.sandbox/1.1" and
+             .authority == "isolated-noncanon-omega-sandbox" and
+             .payload.simulationTick == 37 and
+             .payload.totalBodyCount == 104 and
+             (.payload.dimensionNames | length) == 18' \
+            "$ADVANCED_SANDBOX_JSON"
+          cp "$ADVANCED_SANDBOX_JSON" "$THREED_EVIDENCE_DIR/native-omega-sandbox-advanced.json"
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$THREED" sandbox-render \
+              --input "$ADVANCED_SANDBOX_JSON" --output "$ADVANCED_SANDBOX_FRAME" \
+              --width 160 --height 96 --axis-x 0 --axis-y 4 --axis-depth 6 \
+            | tee logs/evermore-3d-native-sandbox-advanced-render.txt \
+                "$THREED_EVIDENCE_DIR/native-sandbox-advanced-render.txt"
+          grep -F "simulation_tick=37" logs/evermore-3d-native-sandbox-advanced-render.txt
+          test "$(stat --format=%s "$ADVANCED_SANDBOX_FRAME")" -eq $((14 + (160 * 96 * 3)))
+          head -c 14 "$ADVANCED_SANDBOX_FRAME" | cmp --silent - <(printf 'P6\n160 96\n255\n')
+          test "$(sha256sum "$SANDBOX_FRAME" | cut -d ' ' -f 1)" != \
+            "$(sha256sum "$ADVANCED_SANDBOX_FRAME" | cut -d ' ' -f 1)"
+          sha256sum "$ADVANCED_SANDBOX_FRAME" \
+            | tee logs/evermore-3d-native-sandbox-advanced-frame.sha256 \
+                "$THREED_EVIDENCE_DIR/native-sandbox-advanced-frame.sha256"
+
+          run_failure() {
+            local name="$1"
+            local expected_exit="$2"
+            local expected_message="$3"
+            shift 3
+            set +e
+            env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+              "$CLI" "$@" \
+              >"logs/cli-native-${name}.stdout.txt" \
+              2>"logs/cli-native-${name}.stderr.txt"
+            local actual_exit=$?
+            set -e
+            {
+              echo "expected_exit=$expected_exit"
+              echo "actual_exit=$actual_exit"
+            } >"logs/cli-native-${name}.exit.txt"
+            test "$actual_exit" -eq "$expected_exit"
+            grep -F "$expected_message" "logs/cli-native-${name}.stderr.txt"
+          }
+
+          run_failure tampered-replay 4 "VERIFICATION_FAILURE" \
+            verify replay --input project/QA/CliFixtures/tampered-replay.json
+          run_failure semantic-tampered-scene 4 "semantic verification failed" \
+            verify scene --input project/QA/CliFixtures/semantic-tampered-scene.json --zone zone.a
+          run_failure unauthorized-camera 4 "outside the authorized Eastern Kingdoms set" \
+            verify camera --input project/QA/CliFixtures/valid-camera.json --zone zone.b
+          run_failure remote-manifestation-lunara 8 \
+            "LUNARA_CONTAINMENT: REMOTE_MANIFESTATION_AUTHORITY_REJECTED" \
+            lunara run --input project/QA/CliFixtures/remote-manifestation-lunara.json --format json
+          jq -e \
+            '.payload.disposition == "Contained" and
+             .payload.relics[0].chargeMicros == 700000 and
+             (.payload.manifestationDirectives | length) == 0' \
+            logs/cli-native-remote-manifestation-lunara.stdout.txt
+          run_failure low-containment-solune 9 \
+            "SOLUNE_CONTAINMENT: CONTAINMENT_INTEGRITY_LOW" \
+            solune run --input project/QA/CliFixtures/low-containment-solune.json --format json
+          jq -e \
+            '.payload.disposition == "Contained" and
+             .payload.model.containmentIntegrityMicros == 900000 and
+             (.payload.operationDirectives | length) == 0' \
+            logs/cli-native-low-containment-solune.stdout.txt
+
+          MALFORMED_JSON="$RUNNER_TEMP/evermore-malformed.json"
+          printf '%s' '{"authority":' > "$MALFORMED_JSON"
+          run_failure malformed-json 4 "VERIFICATION_FAILURE" \
+            verify replay --input "$MALFORMED_JSON"
+
+          MALFORMED_LUNARA_JSON="$RUNNER_TEMP/evermore-malformed-lunara.json"
+          printf '%s' '{"seed":529,' > "$MALFORMED_LUNARA_JSON"
+          run_failure malformed-lunara-json 2 "LUNARA_INPUT_FAILURE" \
+            lunara run --input "$MALFORMED_LUNARA_JSON"
+
+          MALFORMED_SOLUNE_JSON="$RUNNER_TEMP/evermore-malformed-solune.json"
+          printf '%s' '{"generation":42,' > "$MALFORMED_SOLUNE_JSON"
+          run_failure malformed-solune-json 2 "SOLUNE_INPUT_FAILURE" \
+            solune run --input "$MALFORMED_SOLUNE_JSON"
+
+          MALFORMED_AZEROTH_JSON="$RUNNER_TEMP/evermore-malformed-azeroth.json"
+          printf '%s' '{"omega":{' > "$MALFORMED_AZEROTH_JSON"
+          run_failure malformed-azeroth-json 2 "AZEROTH_INPUT_FAILURE" \
+            azeroth run --input "$MALFORMED_AZEROTH_JSON"
+
+          MALFORMED_AZEROTH_FIELD_JSON="$RUNNER_TEMP/evermore-malformed-azeroth-field.json"
+          printf '%s' '{"simulation":{' > "$MALFORMED_AZEROTH_FIELD_JSON"
+          run_failure malformed-azeroth-field-json 2 "AZEROTH_INPUT_FAILURE" \
+            azeroth field --input "$MALFORMED_AZEROTH_FIELD_JSON"
+
+          UNAUTHORIZED_AZEROTH_FIELD_JSON="$RUNNER_TEMP/evermore-unauthorized-azeroth-field.json"
+          jq '.environment.zones[0].zoneId = "ek.unauthorized.zone"' \
+            project/QA/CliFixtures/valid-azeroth-environmental-field.json \
+            > "$UNAUTHORIZED_AZEROTH_FIELD_JSON"
+          run_failure unauthorized-azeroth-field 2 "must exactly match" \
+            azeroth field --input "$UNAUTHORIZED_AZEROTH_FIELD_JSON"
+
+          run_failure invalid-azeroth-orbit 2 "Orbit azimuth" \
+            azeroth orbit \
+              --input project/QA/CliFixtures/valid-azeroth-environmental-field.json \
+              --azimuth-micros 1000000 --elevation-micros 0 --zoom 0
+
+          INVALID_FRAME="$RUNNER_TEMP/evermore-3d-invalid-${GITHUB_RUN_ID}.ppm"
+          set +e
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$THREED" render \
+              --input project/QA/CliFixtures/valid-azeroth-environmental-field.json \
+              --output "$INVALID_FRAME" --width 63 --height 96 \
+              --azimuth-micros 0 --elevation-micros 0 --zoom 0 \
+            >logs/evermore-3d-native-invalid.stdout.txt \
+            2>logs/evermore-3d-native-invalid.stderr.txt
+          THREED_INVALID_EXIT=$?
+          set -e
+          test "$THREED_INVALID_EXIT" -eq 2
+          grep -F "Width must be between 64 and 2048 pixels" \
+            logs/evermore-3d-native-invalid.stderr.txt
+          test ! -e "$INVALID_FRAME"
+
+          CONTAINED_FIELD="$RUNNER_TEMP/evermore-3d-contained-${GITHUB_RUN_ID}.json"
+          CONTAINED_FRAME="$RUNNER_TEMP/evermore-3d-contained-${GITHUB_RUN_ID}.ppm"
+          jq '.simulation.solune.model.containmentIntegrityMicros = 900000' \
+            project/QA/CliFixtures/valid-azeroth-environmental-field.json \
+            > "$CONTAINED_FIELD"
+          set +e
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$THREED" render \
+              --input "$CONTAINED_FIELD" --output "$CONTAINED_FRAME" \
+              --width 128 --height 96 \
+              --azimuth-micros 0 --elevation-micros 0 --zoom 0 \
+            >logs/evermore-3d-native-contained.stdout.txt \
+            2>logs/evermore-3d-native-contained.stderr.txt
+          THREED_CONTAINED_EXIT=$?
+          set -e
+          test "$THREED_CONTAINED_EXIT" -eq 10
+          grep -F "AZEROTH_CONTAINMENT" logs/evermore-3d-native-contained.stderr.txt
+          test ! -e "$CONTAINED_FRAME"
+
+          OVERSIZED_SANDBOX="$RUNNER_TEMP/evermore-omega-oversized-${GITHUB_RUN_ID}.json"
+          set +e
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$THREED" sandbox-create \
+              --seed 529 --generations 3 --systems 512 --worlds 32 --moons 16 \
+              --output "$OVERSIZED_SANDBOX" \
+            >logs/evermore-3d-native-sandbox-oversized.stdout.txt \
+            2>logs/evermore-3d-native-sandbox-oversized.stderr.txt
+          SANDBOX_OVERSIZED_EXIT=$?
+          set -e
+          test "$SANDBOX_OVERSIZED_EXIT" -eq 2
+          grep -F "cannot exceed 100000 bodies" \
+            logs/evermore-3d-native-sandbox-oversized.stderr.txt
+          test ! -e "$OVERSIZED_SANDBOX"
+
+          INVALID_ADVANCED_SANDBOX="$RUNNER_TEMP/evermore-omega-invalid-advance-${GITHUB_RUN_ID}.json"
+          set +e
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$THREED" sandbox-advance \
+              --input "$SANDBOX_JSON" --ticks 0 --output "$INVALID_ADVANCED_SANDBOX" \
+            >logs/evermore-3d-native-sandbox-invalid-advance.stdout.txt \
+            2>logs/evermore-3d-native-sandbox-invalid-advance.stderr.txt
+          SANDBOX_INVALID_ADVANCE_EXIT=$?
+          set -e
+          test "$SANDBOX_INVALID_ADVANCE_EXIT" -eq 2
+          grep -F "Advance ticks must be between 1 and 10000" \
+            logs/evermore-3d-native-sandbox-invalid-advance.stderr.txt
+          test ! -e "$INVALID_ADVANCED_SANDBOX"
+
+          TAMPERED_SANDBOX="$RUNNER_TEMP/evermore-omega-tampered-${GITHUB_RUN_ID}.json"
+          TAMPERED_SANDBOX_FRAME="$RUNNER_TEMP/evermore-omega-tampered-${GITHUB_RUN_ID}.ppm"
+          jq '.payload.systems[0].hearthstar.scaleMicros += 1' \
+            "$SANDBOX_JSON" > "$TAMPERED_SANDBOX"
+          set +e
+          env -u DOTNET_ROOT -u DOTNET_HOST_PATH PATH="$SANITIZED_PATH" \
+            "$THREED" sandbox-render \
+              --input "$TAMPERED_SANDBOX" --output "$TAMPERED_SANDBOX_FRAME" \
+              --width 160 --height 96 --axis-x 0 --axis-y 4 --axis-depth 6 \
+            >logs/evermore-3d-native-sandbox-tampered.stdout.txt \
+            2>logs/evermore-3d-native-sandbox-tampered.stderr.txt
+          SANDBOX_TAMPERED_EXIT=$?
+          set -e
+          test "$SANDBOX_TAMPERED_EXIT" -eq 2
+          grep -F "payload integrity verification failed" \
+            logs/evermore-3d-native-sandbox-tampered.stderr.txt
+          test ! -e "$TAMPERED_SANDBOX_FRAME"
+
+          UNREADABLE_JSON="$RUNNER_TEMP/evermore-unreadable-replay.json"
+          cp project/QA/CliFixtures/valid-replay.json "$UNREADABLE_JSON"
+          chmod 000 "$UNREADABLE_JSON"
+          run_failure unreadable-input 3 "INPUT_READ_FAILURE" \
+            verify replay --input "$UNREADABLE_JSON"
+          chmod 600 "$UNREADABLE_JSON"
+
+          sha256sum project/QA/CliFixtures/*.json | sort > logs/cli-native-inputs-after.sha256
+          cmp --silent logs/cli-native-inputs-before.sha256 logs/cli-native-inputs-after.sha256
+          echo "PASS: all CLI fixture bytes remained unchanged" | tee logs/cli-native-read-only.txt
+
+      - name: Upload CLI and 3D validation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evermore-cli-and-3d-net10-linux-x64-evidence
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            logs/cli-*
+            logs/evermore-3d-*
+            ${{ env.CLI_EVIDENCE_DIR }}/
+            ${{ env.THREED_EVIDENCE_DIR }}/
+            project/Evermore.Cli/bin/Release/net10.0/linux-x64/publish/
+            project/Evermore.ThreeD.Environment/bin/Release/net10.0/linux-x64/publish/

@@ -1,0 +1,7 @@
+{
+  "microsoft.dotnet.ilcompiler.10.0.10.nupkg": "d33a348d049d71d464edc689b1f16cbbebf5f254cb148c6a9154dfd505aa8378",
+  "microsoft.net.illink.tasks.10.0.10.nupkg": "97a0eca2030901738f070f142aaf02b3b1aead2bc984c08c428847910b4be312",
+  "microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg": "1225154d0588617fdb9fe3fa1c37b40216ecdd2372154e661e115a6836b85b84",
+  "microsoft.netcore.app.runtime.nativeaot.linux-x64.10.0.10.nupkg": "03bd45b398fb366daa396fb3287e24a03216768e47c07d8a535de752dc33cb8e",
+  "runtime.linux-x64.microsoft.dotnet.ilcompiler.10.0.10.nupkg": "af310a805ab73def0d767498f2c70b1ec18b17036816f93a694cb1947e7721c4"
+}

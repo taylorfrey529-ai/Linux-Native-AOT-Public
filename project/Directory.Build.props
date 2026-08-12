@@ -1,0 +1,17 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>14.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <DebugType>portable</DebugType>
+    <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
+  </PropertyGroup>
+</Project>

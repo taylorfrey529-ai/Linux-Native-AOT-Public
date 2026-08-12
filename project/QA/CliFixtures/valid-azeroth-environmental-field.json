@@ -1,0 +1,141 @@
+{
+  "simulation": {
+    "omega": {
+      "seed": 529,
+      "generations": 3,
+      "populationSize": 24,
+      "selectionCount": 8,
+      "mutationRate": 0.25
+    },
+    "lunara": {
+      "seed": 529,
+      "generation": 42,
+      "lunarPhaseStep": 14765,
+      "tidePhaseStep": 0,
+      "baselineTideMicros": 500000,
+      "localTideResponseMicros": 0,
+      "relics": [
+        {
+          "relicId": "relic.lunara.01",
+          "soulSignature": "LUNARA-VOICE-GEM-01",
+          "chargeMicros": 700000,
+          "localRitualCount": 2
+        }
+      ],
+      "ritualAttempts": [
+        {
+          "ritualId": "ritual.42.01",
+          "relicId": "relic.lunara.01",
+          "cultId": "cult.silvermoon.local",
+          "localCultAuthorized": true,
+          "localRitualValid": true
+        }
+      ],
+      "apiResponses": [
+        {
+          "responseId": "response.42.01",
+          "ritualId": "ritual.42.01",
+          "accepted": true,
+          "manifestationRequested": false,
+          "rewards": [
+            {
+              "relicId": "relic.lunara.01",
+              "rewardChargeMicros": 250000
+            }
+          ]
+        }
+      ],
+      "history": [
+        {
+          "generation": 41,
+          "relics": [
+            {
+              "relicId": "relic.lunara.01",
+              "soulSignature": "LUNARA-VOICE-GEM-01",
+              "chargeMicros": 700000,
+              "localRitualCount": 2
+            }
+          ],
+          "manifestationDirectiveCount": 0
+        }
+      ]
+    },
+    "solune": {
+      "generation": 42,
+      "evercycleStepMicrodays": 0,
+      "model": {
+        "constructId": "construct.solune.01",
+        "continuitySignature": "SOLUNE-HEARTHSTAR-01",
+        "evermoreRadiusKm": 6378,
+        "soluneRadiusKm": 1738,
+        "orbitRadiusKm": 373089,
+        "orbitalPeriodTenThousandthDays": 260893,
+        "revolutionsPerEvercycle": 14,
+        "luminosityTerawatts": 2382000000,
+        "photosphereKelvin": 5768,
+        "apparentDiameterMicrodegrees": 533800,
+        "siderealRotationMicrohours": 23114000,
+        "localSolarDayMicrohours": 24000000,
+        "tidalForceRatioMicros": 1094000,
+        "barycenterKm": 4531,
+        "orbitEccentricityMicros": 0,
+        "orbitInclinationMicrodegrees": 0,
+        "containmentIntegrityMicros": 1000000,
+        "localConstructAuthorized": true
+      },
+      "history": [
+        {
+          "generation": 41,
+          "constructId": "construct.solune.01",
+          "continuitySignature": "SOLUNE-HEARTHSTAR-01",
+          "orbitRadiusKm": 373089,
+          "luminosityTerawatts": 2382000000,
+          "photosphereKelvin": 5768,
+          "containmentIntegrityMicros": 1000000
+        }
+      ]
+    }
+  },
+  "environment": {
+    "generation": 42,
+    "solarReferenceIrradianceMilliwattsPerSquareMeter": 1361780,
+    "zones": [
+      {
+        "zoneId": "ek.north.eastern-plaguelands",
+        "atmosphereBaselineMicros": 360000,
+        "manaBaselineMicros": 620000,
+        "soluneAtmosphereResponseMicros": 120000,
+        "lunaraAtmosphereResponseMicros": 80000,
+        "lunaraManaResponseMicros": 180000,
+        "omegaManaResponseMicros": 220000
+      },
+      {
+        "zoneId": "ek.north.eversong",
+        "atmosphereBaselineMicros": 610000,
+        "manaBaselineMicros": 740000,
+        "soluneAtmosphereResponseMicros": 160000,
+        "lunaraAtmosphereResponseMicros": 120000,
+        "lunaraManaResponseMicros": 200000,
+        "omegaManaResponseMicros": 160000
+      },
+      {
+        "zoneId": "ek.north.ghostlands",
+        "atmosphereBaselineMicros": 420000,
+        "manaBaselineMicros": 680000,
+        "soluneAtmosphereResponseMicros": 100000,
+        "lunaraAtmosphereResponseMicros": 140000,
+        "lunaraManaResponseMicros": 240000,
+        "omegaManaResponseMicros": 200000
+      },
+      {
+        "zoneId": "ek.north.western-plaguelands",
+        "atmosphereBaselineMicros": 480000,
+        "manaBaselineMicros": 630000,
+        "soluneAtmosphereResponseMicros": 140000,
+        "lunaraAtmosphereResponseMicros": 100000,
+        "lunaraManaResponseMicros": 160000,
+        "omegaManaResponseMicros": 240000
+      }
+    ]
+  }
+}

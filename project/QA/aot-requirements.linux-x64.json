@@ -1,0 +1,40 @@
+{
+  "bundled_versions_file": "${DOTNET_ROOT}/sdk/10.0.302/Microsoft.NETCoreSdk.BundledVersions.props",
+  "dotnet_root": "${DOTNET_ROOT}",
+  "framework_references": [
+    "Microsoft.NETCore.App"
+  ],
+  "packages": [
+    {
+      "id": "Microsoft.DotNet.ILCompiler",
+      "reason": "Native AOT compiler targets/tool contract",
+      "version": "10.0.10"
+    },
+    {
+      "id": "Microsoft.NET.ILLink.Tasks",
+      "reason": "IL trimming/link analysis and build tasks",
+      "version": "10.0.10"
+    },
+    {
+      "id": "Microsoft.NETCore.App.Runtime.NativeAOT.linux-x64",
+      "reason": "Native AOT runtime implementation for linux-x64",
+      "version": "10.0.10"
+    },
+    {
+      "id": "Microsoft.NETCore.App.Runtime.linux-x64",
+      "reason": "runtime pack for evaluated FrameworkReference Microsoft.NETCore.App",
+      "version": "10.0.10"
+    },
+    {
+      "id": "runtime.linux-x64.Microsoft.DotNet.ILCompiler",
+      "reason": "Native AOT compiler implementation for linux-x64",
+      "version": "10.0.10"
+    }
+  ],
+  "project": "QA/NativeAotSmoke/NativeAotSmoke.csproj",
+  "restore_property": "DisableTransitiveFrameworkReferenceDownloads=true",
+  "rid": "linux-x64",
+  "schema": "dot-net-native-aot/requirements-v1",
+  "sdk_version": "10.0.302",
+  "target_framework": "net10.0"
+}

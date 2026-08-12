@@ -1,0 +1,25 @@
+{
+  "generation": 42,
+  "evercycleStepMicrodays": 0,
+  "model": {
+    "constructId": "construct.solune.01",
+    "continuitySignature": "SOLUNE-HEARTHSTAR-01",
+    "evermoreRadiusKm": 6378,
+    "soluneRadiusKm": 1738,
+    "orbitRadiusKm": 373089,
+    "orbitalPeriodTenThousandthDays": 260893,
+    "revolutionsPerEvercycle": 14,
+    "luminosityTerawatts": 2382000000,
+    "photosphereKelvin": 5768,
+    "apparentDiameterMicrodegrees": 533800,
+    "siderealRotationMicrohours": 23114000,
+    "localSolarDayMicrohours": 24000000,
+    "tidalForceRatioMicros": 1094000,
+    "barycenterKm": 4531,
+    "orbitEccentricityMicros": 0,
+    "orbitInclinationMicrodegrees": 0,
+    "containmentIntegrityMicros": 900000,
+    "localConstructAuthorized": true
+  },
+  "history": []
+}

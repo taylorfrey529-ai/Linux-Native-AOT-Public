@@ -1,0 +1,30 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+csharp_new_line_before_open_brace = all
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:suggestion
+dotnet_style_readonly_field = true:suggestion
+
+# Service objects intentionally retain instance APIs for composition and future injected policy.
+dotnet_diagnostic.CA1822.severity = none
+
+# Non-semantic micro-optimization and naming diagnostics remain visible to IDEs but do not gate builds.
+dotnet_diagnostic.CA1512.severity = suggestion
+dotnet_diagnostic.CA1720.severity = suggestion
+dotnet_diagnostic.CA1834.severity = suggestion
+dotnet_diagnostic.CA1859.severity = suggestion
+dotnet_diagnostic.CA1861.severity = suggestion
+
+[**/*Tests.cs]
+# Descriptive underscore-separated test names are intentional.
+dotnet_diagnostic.CA1707.severity = none
+# Test readability outranks micro-optimizing LINQ over tiny fixture collections.
+dotnet_diagnostic.CA1826.severity = suggestion

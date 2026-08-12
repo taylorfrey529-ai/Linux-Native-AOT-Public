@@ -1,0 +1,48 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermore.Genetics", "Evermore.Genetics/Evermore.Genetics.csproj", "{11111111-1111-1111-1111-111111111111}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EasternKingdoms.Simulation", "EasternKingdoms.Simulation/EasternKingdoms.Simulation.csproj", "{44444444-4444-4444-4444-444444444444}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EasternKingdoms.Simulation.Tests", "EasternKingdoms.Simulation.Tests/EasternKingdoms.Simulation.Tests.csproj", "{77777777-7777-7777-7777-777777777777}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermore.Cli", "Evermore.Cli/Evermore.Cli.csproj", "{A6C15D2A-13B5-4BDF-9370-A7D9DB95C1E7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Omega.Recursive", "Omega.Recursive/Omega.Recursive.csproj", "{E22336BC-9C5D-4FC8-834B-5C7CDBA1EAA5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermore.Lunara.Core", "Evermore.Lunara.Core/Evermore.Lunara.Core.csproj", "{B94F329C-6E2A-4E4F-8AB9-A00B73776A11}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermore.Solune.Core", "Evermore.Solune.Core/Evermore.Solune.Core.csproj", "{6A8F701E-29E8-4D44-9E6C-536F52244712}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermore.Azeroth.Simulation", "Evermore.Azeroth.Simulation/Evermore.Azeroth.Simulation.csproj", "{2D5181FA-7152-4B81-8DF7-EB1243B54690}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermore.ThreeD.Environment", "Evermore.ThreeD.Environment/Evermore.ThreeD.Environment.csproj", "{C0D9C605-ED15-43B9-9327-9AE29B77EC33}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermore.Mmo.Core", "Evermore.Mmo.Core/Evermore.Mmo.Core.csproj", "{9E4B8A21-813E-4F1C-B20D-8B764BBDF019}"
+EndProject
+Global
+  GlobalSection(ProjectConfigurationPlatforms) = postSolution
+    {11111111-1111-1111-1111-111111111111}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {11111111-1111-1111-1111-111111111111}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {44444444-4444-4444-4444-444444444444}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {44444444-4444-4444-4444-444444444444}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {77777777-7777-7777-7777-777777777777}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {77777777-7777-7777-7777-777777777777}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {A6C15D2A-13B5-4BDF-9370-A7D9DB95C1E7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {A6C15D2A-13B5-4BDF-9370-A7D9DB95C1E7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {E22336BC-9C5D-4FC8-834B-5C7CDBA1EAA5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {E22336BC-9C5D-4FC8-834B-5C7CDBA1EAA5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {B94F329C-6E2A-4E4F-8AB9-A00B73776A11}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {B94F329C-6E2A-4E4F-8AB9-A00B73776A11}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {6A8F701E-29E8-4D44-9E6C-536F52244712}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {6A8F701E-29E8-4D44-9E6C-536F52244712}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {2D5181FA-7152-4B81-8DF7-EB1243B54690}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {2D5181FA-7152-4B81-8DF7-EB1243B54690}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {C0D9C605-ED15-43B9-9327-9AE29B77EC33}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {C0D9C605-ED15-43B9-9327-9AE29B77EC33}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {9E4B8A21-813E-4F1C-B20D-8B764BBDF019}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {9E4B8A21-813E-4F1C-B20D-8B764BBDF019}.Debug|Any CPU.Build.0 = Debug|Any CPU
+  EndGlobalSection
+EndGlobal

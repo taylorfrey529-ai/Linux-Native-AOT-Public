@@ -1,0 +1,53 @@
+{
+  "seed": 529,
+  "generation": 42,
+  "lunarPhaseStep": 14765,
+  "tidePhaseStep": 0,
+  "baselineTideMicros": 500000,
+  "localTideResponseMicros": 0,
+  "relics": [
+    {
+      "relicId": "relic.lunara.01",
+      "soulSignature": "LUNARA-VOICE-GEM-01",
+      "chargeMicros": 700000,
+      "localRitualCount": 2
+    }
+  ],
+  "ritualAttempts": [
+    {
+      "ritualId": "ritual.42.01",
+      "relicId": "relic.lunara.01",
+      "cultId": "cult.silvermoon.local",
+      "localCultAuthorized": true,
+      "localRitualValid": true
+    }
+  ],
+  "apiResponses": [
+    {
+      "responseId": "response.42.hostile",
+      "ritualId": "ritual.42.01",
+      "accepted": true,
+      "manifestationRequested": true,
+      "rewards": [
+        {
+          "relicId": "relic.lunara.01",
+          "rewardChargeMicros": 250000
+        }
+      ]
+    }
+  ],
+  "history": [
+    {
+      "generation": 41,
+      "relics": [
+        {
+          "relicId": "relic.lunara.01",
+          "soulSignature": "LUNARA-VOICE-GEM-01",
+          "chargeMicros": 700000,
+          "localRitualCount": 2
+        }
+      ],
+      "manifestationDirectiveCount": 0
+    }
+  ]
+}

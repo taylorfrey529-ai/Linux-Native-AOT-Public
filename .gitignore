@@ -1,0 +1,67 @@
+# .NET build output
+**/bin/
+**/obj/
+artifacts/
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# Native publication and symbols
+publish/
+*.dbg
+*.dSYM/
+*.pdb
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Local SDKs, package feeds, and caches
+.dotnet/
+.nuget/
+cache/*
+!cache/README.md
+**/packages/
+*.nupkg
+*.snupkg
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tgz
+
+# Generated validation output and logs
+archive/
+logs/
+update-bindings/
+project/QA/Evidence/
+project/QA/EvidenceQA4/
+*.log
+
+# Local secrets and environment files
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.json
+appsettings.*.local.json
+
+# Editors and operating systems
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
