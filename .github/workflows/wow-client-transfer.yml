@@ -1,22 +1,3485 @@
-name: WoW Client Mirror Resolve
+name: WoW Client Verified Transfer
 
 on:
   push:
     branches:
       - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/wow-client-transfer.yml'
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
-  resolve:
+  transfer:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     steps:
-      - name: Resolve ChromieCraft mirror hosts
+      - name: Prepare runner
         shell: bash
         run: |
           set -euo pipefail
-          for h in chmi.btground.dedyn.io usefulness.altervista.org btground.dedyn.io; do
-            echo "HOST=$h"
-            getent ahostsv4 "$h" | awk '{print $1}' | sort -u
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2
+          df -h /
+      - name: Download and verify official ChromieCraft source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source transfer
+          curl -L --fail --silent --show-error --retry 5 --retry-delay 3 \
+            -A 'Mozilla/5.0' -e 'https://chromiecraft.com/en/downloads/' \
+            -o client.torrent 'https://usefulness.altervista.org/WoW/ChromieCraft_3.3.5a.zip.torrent'
+          test "$(sha256sum client.torrent | awk '{print $1}')" = '58731d43da3e615fbeb489ebd7a9401a8b56eeed8b7baf72f6b57646c574f62e'
+          aria2c --dir=source --seed-time=0 --file-allocation=none --allow-overwrite=true \
+            --auto-file-renaming=false --check-integrity=true --bt-enable-lpd=false \
+            --enable-dht=true --enable-dht6=false --bt-stop-timeout=600 --summary-interval=60 \
+            client.torrent
+          test -f source/ChromieCraft_3.3.5a.zip
+          test "$(stat -c %s source/ChromieCraft_3.3.5a.zip)" = '17674749792'
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          chunk=240*1024*1024
+          whole=hashlib.sha256()
+          parts=[]
+          offset=0
+          with src.open('rb') as f:
+              i=0
+              while True:
+                  data=f.read(chunk)
+                  if not data: break
+                  whole.update(data)
+                  parts.append({'index':i,'name':f'payload.part.{i:03d}','offset':offset,'size':len(data),'sha256':hashlib.sha256(data).hexdigest()})
+                  offset += len(data); i += 1
+          manifest={
+            'logical_name':'ChromieCraft_3.3.5a.zip',
+            'source_page':'https://chromiecraft.com/en/downloads/',
+            'torrent_url':'https://usefulness.altervista.org/WoW/ChromieCraft_3.3.5a.zip.torrent',
+            'torrent_sha256':'58731d43da3e615fbeb489ebd7a9401a8b56eeed8b7baf72f6b57646c574f62e',
+            'torrent_info_hash_sha1':'2ba2833baf733ce0a16040d43ed09491f2bf2ab2',
+            'size':src.stat().st_size,
+            'sha256':whole.hexdigest(),
+            'chunk_size':chunk,
+            'parts':parts
+          }
+          assert len(parts)==71 and offset==17674749792
+          Path('manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          print('SOURCE_SHA256='+manifest['sha256'])
+          print('PARTS='+str(len(parts)))
+          PY
+          df -h /
+      - name: Prepare part 000
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 0 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 000
+        id: upload_000
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-000
+          path: |
+            transfer/payload.part.000
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 000
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_000.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/000'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.000
+              echo "VM acknowledged part 000; artifact deleted."
+              exit 0
+            fi
+            sleep 5
           done
+          echo "Timed out waiting for VM acknowledgment of part 000" >&2
+          exit 1
+      - name: Prepare part 001
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 1 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 001
+        id: upload_001
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-001
+          path: |
+            transfer/payload.part.001
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 001
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_001.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/001'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.001
+              echo "VM acknowledged part 001; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 001" >&2
+          exit 1
+      - name: Prepare part 002
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 2 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 002
+        id: upload_002
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-002
+          path: |
+            transfer/payload.part.002
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 002
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_002.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/002'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.002
+              echo "VM acknowledged part 002; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 002" >&2
+          exit 1
+      - name: Prepare part 003
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 3 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 003
+        id: upload_003
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-003
+          path: |
+            transfer/payload.part.003
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 003
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_003.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/003'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.003
+              echo "VM acknowledged part 003; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 003" >&2
+          exit 1
+      - name: Prepare part 004
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 4 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 004
+        id: upload_004
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-004
+          path: |
+            transfer/payload.part.004
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 004
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_004.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/004'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.004
+              echo "VM acknowledged part 004; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 004" >&2
+          exit 1
+      - name: Prepare part 005
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 5 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 005
+        id: upload_005
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-005
+          path: |
+            transfer/payload.part.005
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 005
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_005.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/005'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.005
+              echo "VM acknowledged part 005; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 005" >&2
+          exit 1
+      - name: Prepare part 006
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 6 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 006
+        id: upload_006
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-006
+          path: |
+            transfer/payload.part.006
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 006
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_006.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/006'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.006
+              echo "VM acknowledged part 006; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 006" >&2
+          exit 1
+      - name: Prepare part 007
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 7 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 007
+        id: upload_007
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-007
+          path: |
+            transfer/payload.part.007
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 007
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_007.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/007'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.007
+              echo "VM acknowledged part 007; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 007" >&2
+          exit 1
+      - name: Prepare part 008
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 8 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 008
+        id: upload_008
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-008
+          path: |
+            transfer/payload.part.008
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 008
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_008.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/008'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.008
+              echo "VM acknowledged part 008; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 008" >&2
+          exit 1
+      - name: Prepare part 009
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 9 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 009
+        id: upload_009
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-009
+          path: |
+            transfer/payload.part.009
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 009
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_009.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/009'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.009
+              echo "VM acknowledged part 009; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 009" >&2
+          exit 1
+      - name: Prepare part 010
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 10 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 010
+        id: upload_010
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-010
+          path: |
+            transfer/payload.part.010
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 010
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_010.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/010'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.010
+              echo "VM acknowledged part 010; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 010" >&2
+          exit 1
+      - name: Prepare part 011
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 11 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 011
+        id: upload_011
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-011
+          path: |
+            transfer/payload.part.011
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 011
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_011.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/011'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.011
+              echo "VM acknowledged part 011; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 011" >&2
+          exit 1
+      - name: Prepare part 012
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 12 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 012
+        id: upload_012
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-012
+          path: |
+            transfer/payload.part.012
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 012
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_012.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/012'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.012
+              echo "VM acknowledged part 012; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 012" >&2
+          exit 1
+      - name: Prepare part 013
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 13 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 013
+        id: upload_013
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-013
+          path: |
+            transfer/payload.part.013
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 013
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_013.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/013'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.013
+              echo "VM acknowledged part 013; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 013" >&2
+          exit 1
+      - name: Prepare part 014
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 14 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 014
+        id: upload_014
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-014
+          path: |
+            transfer/payload.part.014
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 014
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_014.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/014'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.014
+              echo "VM acknowledged part 014; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 014" >&2
+          exit 1
+      - name: Prepare part 015
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 15 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 015
+        id: upload_015
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-015
+          path: |
+            transfer/payload.part.015
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 015
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_015.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/015'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.015
+              echo "VM acknowledged part 015; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 015" >&2
+          exit 1
+      - name: Prepare part 016
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 16 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 016
+        id: upload_016
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-016
+          path: |
+            transfer/payload.part.016
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 016
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_016.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/016'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.016
+              echo "VM acknowledged part 016; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 016" >&2
+          exit 1
+      - name: Prepare part 017
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 17 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 017
+        id: upload_017
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-017
+          path: |
+            transfer/payload.part.017
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 017
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_017.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/017'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.017
+              echo "VM acknowledged part 017; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 017" >&2
+          exit 1
+      - name: Prepare part 018
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 18 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 018
+        id: upload_018
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-018
+          path: |
+            transfer/payload.part.018
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 018
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_018.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/018'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.018
+              echo "VM acknowledged part 018; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 018" >&2
+          exit 1
+      - name: Prepare part 019
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 19 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 019
+        id: upload_019
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-019
+          path: |
+            transfer/payload.part.019
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 019
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_019.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/019'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.019
+              echo "VM acknowledged part 019; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 019" >&2
+          exit 1
+      - name: Prepare part 020
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 20 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 020
+        id: upload_020
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-020
+          path: |
+            transfer/payload.part.020
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 020
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_020.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/020'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.020
+              echo "VM acknowledged part 020; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 020" >&2
+          exit 1
+      - name: Prepare part 021
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 21 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 021
+        id: upload_021
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-021
+          path: |
+            transfer/payload.part.021
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 021
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_021.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/021'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.021
+              echo "VM acknowledged part 021; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 021" >&2
+          exit 1
+      - name: Prepare part 022
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 22 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 022
+        id: upload_022
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-022
+          path: |
+            transfer/payload.part.022
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 022
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_022.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/022'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.022
+              echo "VM acknowledged part 022; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 022" >&2
+          exit 1
+      - name: Prepare part 023
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 23 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 023
+        id: upload_023
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-023
+          path: |
+            transfer/payload.part.023
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 023
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_023.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/023'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.023
+              echo "VM acknowledged part 023; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 023" >&2
+          exit 1
+      - name: Prepare part 024
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 24 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 024
+        id: upload_024
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-024
+          path: |
+            transfer/payload.part.024
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 024
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_024.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/024'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.024
+              echo "VM acknowledged part 024; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 024" >&2
+          exit 1
+      - name: Prepare part 025
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 25 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 025
+        id: upload_025
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-025
+          path: |
+            transfer/payload.part.025
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 025
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_025.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/025'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.025
+              echo "VM acknowledged part 025; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 025" >&2
+          exit 1
+      - name: Prepare part 026
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 26 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 026
+        id: upload_026
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-026
+          path: |
+            transfer/payload.part.026
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 026
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_026.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/026'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.026
+              echo "VM acknowledged part 026; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 026" >&2
+          exit 1
+      - name: Prepare part 027
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 27 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 027
+        id: upload_027
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-027
+          path: |
+            transfer/payload.part.027
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 027
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_027.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/027'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.027
+              echo "VM acknowledged part 027; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 027" >&2
+          exit 1
+      - name: Prepare part 028
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 28 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 028
+        id: upload_028
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-028
+          path: |
+            transfer/payload.part.028
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 028
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_028.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/028'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.028
+              echo "VM acknowledged part 028; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 028" >&2
+          exit 1
+      - name: Prepare part 029
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 29 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 029
+        id: upload_029
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-029
+          path: |
+            transfer/payload.part.029
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 029
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_029.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/029'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.029
+              echo "VM acknowledged part 029; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 029" >&2
+          exit 1
+      - name: Prepare part 030
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 30 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 030
+        id: upload_030
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-030
+          path: |
+            transfer/payload.part.030
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 030
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_030.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/030'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.030
+              echo "VM acknowledged part 030; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 030" >&2
+          exit 1
+      - name: Prepare part 031
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 31 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 031
+        id: upload_031
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-031
+          path: |
+            transfer/payload.part.031
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 031
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_031.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/031'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.031
+              echo "VM acknowledged part 031; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 031" >&2
+          exit 1
+      - name: Prepare part 032
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 32 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 032
+        id: upload_032
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-032
+          path: |
+            transfer/payload.part.032
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 032
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_032.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/032'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.032
+              echo "VM acknowledged part 032; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 032" >&2
+          exit 1
+      - name: Prepare part 033
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 33 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 033
+        id: upload_033
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-033
+          path: |
+            transfer/payload.part.033
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 033
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_033.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/033'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.033
+              echo "VM acknowledged part 033; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 033" >&2
+          exit 1
+      - name: Prepare part 034
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 34 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 034
+        id: upload_034
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-034
+          path: |
+            transfer/payload.part.034
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 034
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_034.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/034'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.034
+              echo "VM acknowledged part 034; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 034" >&2
+          exit 1
+      - name: Prepare part 035
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 35 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 035
+        id: upload_035
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-035
+          path: |
+            transfer/payload.part.035
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 035
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_035.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/035'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.035
+              echo "VM acknowledged part 035; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 035" >&2
+          exit 1
+      - name: Prepare part 036
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 36 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 036
+        id: upload_036
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-036
+          path: |
+            transfer/payload.part.036
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 036
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_036.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/036'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.036
+              echo "VM acknowledged part 036; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 036" >&2
+          exit 1
+      - name: Prepare part 037
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 37 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 037
+        id: upload_037
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-037
+          path: |
+            transfer/payload.part.037
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 037
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_037.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/037'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.037
+              echo "VM acknowledged part 037; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 037" >&2
+          exit 1
+      - name: Prepare part 038
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 38 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 038
+        id: upload_038
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-038
+          path: |
+            transfer/payload.part.038
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 038
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_038.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/038'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.038
+              echo "VM acknowledged part 038; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 038" >&2
+          exit 1
+      - name: Prepare part 039
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 39 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 039
+        id: upload_039
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-039
+          path: |
+            transfer/payload.part.039
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 039
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_039.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/039'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.039
+              echo "VM acknowledged part 039; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 039" >&2
+          exit 1
+      - name: Prepare part 040
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 40 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 040
+        id: upload_040
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-040
+          path: |
+            transfer/payload.part.040
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 040
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_040.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/040'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.040
+              echo "VM acknowledged part 040; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 040" >&2
+          exit 1
+      - name: Prepare part 041
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 41 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 041
+        id: upload_041
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-041
+          path: |
+            transfer/payload.part.041
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 041
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_041.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/041'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.041
+              echo "VM acknowledged part 041; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 041" >&2
+          exit 1
+      - name: Prepare part 042
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 42 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 042
+        id: upload_042
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-042
+          path: |
+            transfer/payload.part.042
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 042
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_042.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/042'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.042
+              echo "VM acknowledged part 042; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 042" >&2
+          exit 1
+      - name: Prepare part 043
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 43 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 043
+        id: upload_043
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-043
+          path: |
+            transfer/payload.part.043
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 043
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_043.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/043'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.043
+              echo "VM acknowledged part 043; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 043" >&2
+          exit 1
+      - name: Prepare part 044
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 44 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 044
+        id: upload_044
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-044
+          path: |
+            transfer/payload.part.044
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 044
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_044.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/044'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.044
+              echo "VM acknowledged part 044; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 044" >&2
+          exit 1
+      - name: Prepare part 045
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 45 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 045
+        id: upload_045
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-045
+          path: |
+            transfer/payload.part.045
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 045
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_045.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/045'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.045
+              echo "VM acknowledged part 045; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 045" >&2
+          exit 1
+      - name: Prepare part 046
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 46 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 046
+        id: upload_046
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-046
+          path: |
+            transfer/payload.part.046
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 046
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_046.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/046'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.046
+              echo "VM acknowledged part 046; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 046" >&2
+          exit 1
+      - name: Prepare part 047
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 47 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 047
+        id: upload_047
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-047
+          path: |
+            transfer/payload.part.047
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 047
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_047.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/047'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.047
+              echo "VM acknowledged part 047; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 047" >&2
+          exit 1
+      - name: Prepare part 048
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 48 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 048
+        id: upload_048
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-048
+          path: |
+            transfer/payload.part.048
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 048
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_048.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/048'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.048
+              echo "VM acknowledged part 048; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 048" >&2
+          exit 1
+      - name: Prepare part 049
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 49 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 049
+        id: upload_049
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-049
+          path: |
+            transfer/payload.part.049
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 049
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_049.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/049'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.049
+              echo "VM acknowledged part 049; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 049" >&2
+          exit 1
+      - name: Prepare part 050
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 50 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 050
+        id: upload_050
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-050
+          path: |
+            transfer/payload.part.050
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 050
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_050.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/050'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.050
+              echo "VM acknowledged part 050; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 050" >&2
+          exit 1
+      - name: Prepare part 051
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 51 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 051
+        id: upload_051
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-051
+          path: |
+            transfer/payload.part.051
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 051
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_051.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/051'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.051
+              echo "VM acknowledged part 051; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 051" >&2
+          exit 1
+      - name: Prepare part 052
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 52 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 052
+        id: upload_052
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-052
+          path: |
+            transfer/payload.part.052
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 052
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_052.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/052'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.052
+              echo "VM acknowledged part 052; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 052" >&2
+          exit 1
+      - name: Prepare part 053
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 53 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 053
+        id: upload_053
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-053
+          path: |
+            transfer/payload.part.053
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 053
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_053.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/053'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.053
+              echo "VM acknowledged part 053; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 053" >&2
+          exit 1
+      - name: Prepare part 054
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 54 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 054
+        id: upload_054
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-054
+          path: |
+            transfer/payload.part.054
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 054
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_054.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/054'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.054
+              echo "VM acknowledged part 054; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 054" >&2
+          exit 1
+      - name: Prepare part 055
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 55 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 055
+        id: upload_055
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-055
+          path: |
+            transfer/payload.part.055
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 055
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_055.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/055'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.055
+              echo "VM acknowledged part 055; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 055" >&2
+          exit 1
+      - name: Prepare part 056
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 56 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 056
+        id: upload_056
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-056
+          path: |
+            transfer/payload.part.056
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 056
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_056.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/056'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.056
+              echo "VM acknowledged part 056; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 056" >&2
+          exit 1
+      - name: Prepare part 057
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 57 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 057
+        id: upload_057
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-057
+          path: |
+            transfer/payload.part.057
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 057
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_057.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/057'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.057
+              echo "VM acknowledged part 057; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 057" >&2
+          exit 1
+      - name: Prepare part 058
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 58 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 058
+        id: upload_058
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-058
+          path: |
+            transfer/payload.part.058
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 058
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_058.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/058'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.058
+              echo "VM acknowledged part 058; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 058" >&2
+          exit 1
+      - name: Prepare part 059
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 59 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 059
+        id: upload_059
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-059
+          path: |
+            transfer/payload.part.059
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 059
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_059.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/059'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.059
+              echo "VM acknowledged part 059; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 059" >&2
+          exit 1
+      - name: Prepare part 060
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 60 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 060
+        id: upload_060
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-060
+          path: |
+            transfer/payload.part.060
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 060
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_060.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/060'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.060
+              echo "VM acknowledged part 060; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 060" >&2
+          exit 1
+      - name: Prepare part 061
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 61 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 061
+        id: upload_061
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-061
+          path: |
+            transfer/payload.part.061
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 061
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_061.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/061'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.061
+              echo "VM acknowledged part 061; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 061" >&2
+          exit 1
+      - name: Prepare part 062
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 62 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 062
+        id: upload_062
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-062
+          path: |
+            transfer/payload.part.062
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 062
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_062.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/062'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.062
+              echo "VM acknowledged part 062; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 062" >&2
+          exit 1
+      - name: Prepare part 063
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 63 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 063
+        id: upload_063
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-063
+          path: |
+            transfer/payload.part.063
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 063
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_063.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/063'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.063
+              echo "VM acknowledged part 063; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 063" >&2
+          exit 1
+      - name: Prepare part 064
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 64 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 064
+        id: upload_064
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-064
+          path: |
+            transfer/payload.part.064
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 064
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_064.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/064'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.064
+              echo "VM acknowledged part 064; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 064" >&2
+          exit 1
+      - name: Prepare part 065
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 65 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 065
+        id: upload_065
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-065
+          path: |
+            transfer/payload.part.065
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 065
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_065.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/065'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.065
+              echo "VM acknowledged part 065; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 065" >&2
+          exit 1
+      - name: Prepare part 066
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 66 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 066
+        id: upload_066
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-066
+          path: |
+            transfer/payload.part.066
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 066
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_066.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/066'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.066
+              echo "VM acknowledged part 066; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 066" >&2
+          exit 1
+      - name: Prepare part 067
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 67 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 067
+        id: upload_067
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-067
+          path: |
+            transfer/payload.part.067
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 067
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_067.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/067'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.067
+              echo "VM acknowledged part 067; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 067" >&2
+          exit 1
+      - name: Prepare part 068
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 68 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 068
+        id: upload_068
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-068
+          path: |
+            transfer/payload.part.068
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 068
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_068.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/068'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.068
+              echo "VM acknowledged part 068; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 068" >&2
+          exit 1
+      - name: Prepare part 069
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 69 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 069
+        id: upload_069
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-069
+          path: |
+            transfer/payload.part.069
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 069
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_069.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/069'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.069
+              echo "VM acknowledged part 069; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 069" >&2
+          exit 1
+      - name: Prepare part 070
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 70 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1])
+          m=json.loads(Path('manifest.json').read_text())
+          part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size']
+          assert hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          print(out, len(data), part['sha256'])
+          PY
+      - name: Upload part 070
+        id: upload_070
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-part-070
+          path: |
+            transfer/payload.part.070
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 070
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_070.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.transfer-acks/070'
+          for attempt in $(seq 1 180); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f transfer/payload.part.070
+              echo "VM acknowledged part 070; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgment of part 070" >&2
+          exit 1
+      - name: Transfer complete
+        run: echo 'All 71 client parts were acknowledged by the VM.'
