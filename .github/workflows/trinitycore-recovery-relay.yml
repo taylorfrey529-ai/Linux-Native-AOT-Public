@@ -1,0 +1,205 @@
+name: TrinityCore Recovery Relay
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/trinitycore-recovery-relay.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  SOURCE_REPO: taylorfrey529-ai/world-of-warcraft-alpha-binary
+  RELEASE_TAG: tmp-trinitycore-335-f5f9bac-recovery-20260928
+  BUNDLE: trinitycore-335-f5f9bac-recovery-bundle.tar.gz
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Wait for verified public release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://github.com/${SOURCE_REPO}/releases/download/${RELEASE_TAG}"
+          for attempt in $(seq 1 360); do
+            if curl -fsIL "$base/manifest.json" >/dev/null 2>&1; then break; fi
+            if [ "$attempt" -eq 360 ]; then echo 'Timed out waiting for recovery release' >&2; exit 1; fi
+            sleep 15
+          done
+          curl -fL --retry 5 --retry-delay 2 "$base/manifest.json" -o manifest.json
+          curl -fL --retry 5 --retry-delay 2 "$base/BUNDLE.sha256" -o BUNDLE.sha256
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('manifest.json').read_text())
+          assert m['logical_name']=='trinitycore-335-f5f9bac-recovery-bundle.tar.gz'
+          assert len(m['parts'])==3
+          assert sum(int(p['size']) for p in m['parts'])==int(m['logical_size'])
+          assert all(int(p['size']) < 256*1024*1024 for p in m['parts'])
+          print('logical_size='+str(m['logical_size']))
+          print('logical_sha256='+m['logical_sha256'])
+          PY
+      - name: Upload recovery metadata
+        id: upload_meta
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-recovery-relay-metadata
+          path: |
+            manifest.json
+            BUNDLE.sha256
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM metadata verification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_meta.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 360); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/.server-recovery-acks/metadata?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+      - name: Download and verify recovery part 000
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://github.com/${SOURCE_REPO}/releases/download/${RELEASE_TAG}"
+          name="${BUNDLE}.part.000"
+          curl -fL --retry 5 --retry-delay 2 "$base/$name" -o "$name"
+          python3 - 0 "$name" <<'PY'
+          import hashlib,json,sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); p=Path(sys.argv[2]); m=json.loads(Path('manifest.json').read_text())
+          e=m['parts'][idx]
+          assert p.name==e['name']
+          assert p.stat().st_size==int(e['size'])
+          h=hashlib.sha256()
+          with p.open('rb') as f:
+              for b in iter(lambda:f.read(8*1024*1024),b''): h.update(b)
+          assert h.hexdigest()==e['sha256'], (h.hexdigest(),e['sha256'])
+          print(p.name,p.stat().st_size,h.hexdigest())
+          PY
+      - name: Upload recovery part 000
+        id: upload_000
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-recovery-relay-part-000
+          path: ${{ env.BUNDLE }}.part.000
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 000
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_000.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 360); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/.server-recovery-acks/000?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f "${BUNDLE}.part.000"
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+      - name: Download and verify recovery part 001
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://github.com/${SOURCE_REPO}/releases/download/${RELEASE_TAG}"
+          name="${BUNDLE}.part.001"
+          curl -fL --retry 5 --retry-delay 2 "$base/$name" -o "$name"
+          python3 - 1 "$name" <<'PY'
+          import hashlib,json,sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); p=Path(sys.argv[2]); m=json.loads(Path('manifest.json').read_text())
+          e=m['parts'][idx]
+          assert p.name==e['name']
+          assert p.stat().st_size==int(e['size'])
+          h=hashlib.sha256()
+          with p.open('rb') as f:
+              for b in iter(lambda:f.read(8*1024*1024),b''): h.update(b)
+          assert h.hexdigest()==e['sha256'], (h.hexdigest(),e['sha256'])
+          print(p.name,p.stat().st_size,h.hexdigest())
+          PY
+      - name: Upload recovery part 001
+        id: upload_001
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-recovery-relay-part-001
+          path: ${{ env.BUNDLE }}.part.001
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 001
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_001.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 360); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/.server-recovery-acks/001?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f "${BUNDLE}.part.001"
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+      - name: Download and verify recovery part 002
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://github.com/${SOURCE_REPO}/releases/download/${RELEASE_TAG}"
+          name="${BUNDLE}.part.002"
+          curl -fL --retry 5 --retry-delay 2 "$base/$name" -o "$name"
+          python3 - 2 "$name" <<'PY'
+          import hashlib,json,sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); p=Path(sys.argv[2]); m=json.loads(Path('manifest.json').read_text())
+          e=m['parts'][idx]
+          assert p.name==e['name']
+          assert p.stat().st_size==int(e['size'])
+          h=hashlib.sha256()
+          with p.open('rb') as f:
+              for b in iter(lambda:f.read(8*1024*1024),b''): h.update(b)
+          assert h.hexdigest()==e['sha256'], (h.hexdigest(),e['sha256'])
+          print(p.name,p.stat().st_size,h.hexdigest())
+          PY
+      - name: Upload recovery part 002
+        id: upload_002
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-recovery-relay-part-002
+          path: ${{ env.BUNDLE }}.part.002
+          compression-level: 0
+          retention-days: 1
+      - name: Await VM verification 002
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_002.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 360); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/.server-recovery-acks/002?ref=chatgpt-wow-client-transfer-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f "${BUNDLE}.part.002"
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+      - name: Relay complete
+        run: echo 'TrinityCore recovery relay acknowledged by VM.'
