@@ -1,0 +1,40 @@
+name: Wine 10 x86 Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/wine10-x86-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact stable Wine 10 x86 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://github.com/Kron4ek/Wine-Builds/releases/download/10.0/wine-10.0-x86.tar.xz'
+          SHA='c5be273749f5c513b3edf7ad79d8214be558b80c67c6ca343d2f17fdcc30c2d2'
+          curl -L --fail --silent --show-error --retry 5 --retry-delay 2 -o wine10-x86.tar.xz "$URL"
+          test "$(sha256sum wine10-x86.tar.xz | awk '{print $1}')" = "$SHA"
+          printf '%s  %s\n' "$SHA" wine10-x86.tar.xz > SHA256SUMS
+          mkdir inspect
+          tar -xJf wine10-x86.tar.xz -C inspect
+          ROOT="$(find inspect -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          file "$ROOT/bin/wine" "$ROOT/bin/wineserver" | tee inspect.txt
+      - name: Upload Wine 10 x86
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine10-x86
+          path: |
+            wine10-x86.tar.xz
+            SHA256SUMS
+            inspect.txt
+          compression-level: 0
+          retention-days: 1
