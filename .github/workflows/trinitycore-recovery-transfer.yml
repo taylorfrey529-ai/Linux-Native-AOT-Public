@@ -1,0 +1,320 @@
+name: TrinityCore 3.3.5 public recovery transfer
+
+on:
+  push:
+    branches:
+      - chatgpt-trinitycore-recovery-20260928
+    paths:
+      - .github/workflows/trinitycore-recovery-bundle.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  CORE_COMMIT: f5f9bac4fa74da42e2dce419309362aede578e9d
+  CORE_TREE: 39b1b4e92c9efc254a239645d1a6478360c8df54
+  CORE_CMAKE_BLOB: cc306ab0ce120d3d5e92d09b33b5c5442a303b6c
+  TDB_TAG: TDB335.25101
+  TDB_ASSET: TDB_full_world_335.25101_2025_10_21.7z
+  BUNDLE: trinitycore-335-f5f9bac-recovery-bundle.tar.gz
+  CHUNK_MIB: "230"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout recovery branch
+        uses: actions/checkout@v4
+        with:
+          ref: ci/trinitycore-recovery-20260928
+
+      - name: Build pinned server and extraction tools
+        run: |
+          set -euxo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/recovery"
+          cat > "$GITHUB_WORKSPACE/recovery/build.sh" <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git cmake ninja-build gcc g++ make pkg-config file \
+            libssl-dev libboost-all-dev libmariadb-dev libmariadb-dev-compat \
+            libreadline-dev zlib1g-dev libbz2-dev libncurses-dev p7zip-full
+
+          rm -rf /src/TrinityCore /build/trinity /opt/trinitycore /bundle
+          git clone --filter=blob:none --no-checkout https://github.com/TrinityCore/TrinityCore.git /src/TrinityCore
+          git -C /src/TrinityCore checkout --detach "$CORE_COMMIT"
+          test "$(git -C /src/TrinityCore rev-parse HEAD)" = "$CORE_COMMIT"
+          test "$(git -C /src/TrinityCore rev-parse 'HEAD^{tree}')" = "$CORE_TREE"
+          test "$(git -C /src/TrinityCore hash-object CMakeLists.txt)" = "$CORE_CMAKE_BLOB"
+
+          cmake -S /src/TrinityCore -B /build/trinity -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_INSTALL_PREFIX=/opt/trinitycore \
+            -DSERVERS=1 \
+            -DTOOLS=1 \
+            -DSCRIPTS=static \
+            -DWITH_WARNINGS=0 \
+            -DWITH_WARNINGS_AS_ERRORS=0 \
+            -DBUILD_TESTING=0 \
+            -DNOJEM=ON
+
+          cmake --build /build/trinity --parallel 2
+          cmake --install /build/trinity
+
+          for bin in authserver worldserver mapextractor vmap4extractor vmap4assembler mmaps_generator; do
+            test -x "/opt/trinitycore/bin/$bin"
+          done
+
+          mkdir -p /opt/trinitycore/lib
+          for pattern in \
+            'libboost_*.so*' 'libreadline.so.*' 'libhistory.so.*' \
+            'libmariadb.so.*' 'libbz2.so.*' 'libz.so.*'; do
+            find /usr/lib /lib -type f -name "$pattern" -print 2>/dev/null || true
+          done | sort -u | while read -r lib; do
+            test -n "$lib" || continue
+            cp -L "$lib" /opt/trinitycore/lib/"$(basename "$lib")"
+          done
+
+          mkdir -p /bundle/install /bundle/source /bundle/tdb /bundle/evidence
+          cp -a /opt/trinitycore/. /bundle/install/
+          cp -a /src/TrinityCore/sql /bundle/source/
+
+          TDB_URL="https://github.com/TrinityCore/TrinityCore/releases/download/${TDB_TAG}/${TDB_ASSET}"
+          curl -fL --retry 4 --retry-delay 3 "$TDB_URL" -o "/bundle/tdb/${TDB_ASSET}"
+          7z t "/bundle/tdb/${TDB_ASSET}"
+          7z x -y "/bundle/tdb/${TDB_ASSET}" -o/bundle/tdb
+          test -s /bundle/tdb/TDB_full_world_335.25101_2025_10_21.sql
+          rm -f "/bundle/tdb/${TDB_ASSET}"
+
+          {
+            echo "core_commit=$CORE_COMMIT"
+            echo "core_tree=$CORE_TREE"
+            echo "cmakelists_blob=$CORE_CMAKE_BLOB"
+            echo "client=3.3.5a.12340"
+            echo "tdb_release=$TDB_TAG"
+            echo "tdb_asset=$TDB_ASSET"
+            echo "platform=Debian GNU/Linux 13 (trixie) amd64"
+            echo "build_type=RelWithDebInfo"
+            echo "servers=1"
+            echo "tools=1"
+            echo "scripts=static"
+          } > /bundle/evidence/RECOVERY.env
+
+          (
+            cd /bundle
+            find install source tdb evidence -type f ! -name SHA256SUMS -print0 \
+              | LC_ALL=C sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+          )
+
+          for bin in authserver worldserver mapextractor vmap4extractor vmap4assembler mmaps_generator; do
+            LD_LIBRARY_PATH=/bundle/install/lib ldd "/bundle/install/bin/$bin" \
+              > "/bundle/evidence/ldd-$bin.txt"
+            ! grep -q 'not found' "/bundle/evidence/ldd-$bin.txt"
+          done
+
+          tar -C /bundle -czf "/workspace/recovery/${BUNDLE}" .
+          test -s "/workspace/recovery/${BUNDLE}"
+          tar -tzf "/workspace/recovery/${BUNDLE}" >/dev/null
+          (
+            cd /workspace/recovery
+            sha256sum "$BUNDLE" > BUNDLE.sha256
+          )
+          SCRIPT
+          chmod +x "$GITHUB_WORKSPACE/recovery/build.sh"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -e CORE_COMMIT="$CORE_COMMIT" \
+            -e CORE_TREE="$CORE_TREE" \
+            -e CORE_CMAKE_BLOB="$CORE_CMAKE_BLOB" \
+            -e TDB_TAG="$TDB_TAG" \
+            -e TDB_ASSET="$TDB_ASSET" \
+            -e BUNDLE="$BUNDLE" \
+            debian:trixie \
+            bash /workspace/recovery/build.sh
+          rm -f "$GITHUB_WORKSPACE/recovery/build.sh"
+
+      - name: Prepare verified transfer parts
+        run: |
+          set -euxo pipefail
+          cd recovery
+          sha256sum -c BUNDLE.sha256
+          tar -tzf "$BUNDLE" >/dev/null
+          stat -c 'bytes=%s file=%n' "$BUNDLE"
+
+          rm -rf parts
+          mkdir -p parts
+          split -b "${CHUNK_MIB}M" -d -a 3 "$BUNDLE" "parts/${BUNDLE}.part."
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = Path(os.environ["BUNDLE"])
+          chunk_bytes = int(os.environ["CHUNK_MIB"]) * 1024 * 1024
+          hard_limit = 256 * 1024 * 1024
+
+          def digest(path: Path) -> str:
+              h = hashlib.sha256()
+              with path.open("rb") as f:
+                  for block in iter(lambda: f.read(1024 * 1024), b""):
+                      h.update(block)
+              return h.hexdigest()
+
+          parts_dir = Path("parts")
+          parts = []
+          for index, part_path in enumerate(sorted(parts_dir.glob(f"{bundle.name}.part.*"))):
+              size = part_path.stat().st_size
+              if size >= hard_limit:
+                  raise SystemExit(f"part exceeds hard transport ceiling: {part_path} ({size})")
+              parts.append({
+                  "index": index,
+                  "name": part_path.name,
+                  "size": size,
+                  "sha256": digest(part_path),
+              })
+
+          if not parts:
+              raise SystemExit("no transfer parts were created")
+          if len(parts) > 4:
+              raise SystemExit(f"unexpected part count {len(parts)}; add upload steps before retrying")
+
+          manifest = {
+              "schema_version": 1,
+              "source_kind": "file",
+              "source_name": bundle.name,
+              "logical_name": bundle.name,
+              "logical_size": bundle.stat().st_size,
+              "logical_sha256": digest(bundle),
+              "chunk_size_bytes": chunk_bytes,
+              "hard_transport_limit_bytes": hard_limit,
+              "parts": parts,
+          }
+          Path("manifest.json").write_text(json.dumps(manifest, indent=2) + chr(10), encoding="utf-8")
+          print(json.dumps(manifest, indent=2))
+          PY
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          m = json.loads(Path("manifest.json").read_text(encoding="utf-8"))
+          total = 0
+          for p in m["parts"]:
+              part_path = Path("parts") / p["name"]
+              h = hashlib.sha256(part_path.read_bytes()).hexdigest()
+              assert part_path.stat().st_size == p["size"], p["name"]
+              assert h == p["sha256"], p["name"]
+              total += p["size"]
+          assert total == m["logical_size"], (total, m["logical_size"])
+          print(f"verified_parts={len(m['parts'])} bytes={total}")
+          PY
+
+      - name: Upload recovery metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-335-recovery-metadata
+          path: |
+            recovery/manifest.json
+            recovery/BUNDLE.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Upload recovery part 000
+        id: upload_000
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-335-recovery-part-000
+          path: recovery/parts/${{ env.BUNDLE }}.part.000
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Await VM verification 000
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_000.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.server-transfer-acks-20260928/000'
+          for attempt in $(seq 1 360); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-trinitycore-recovery-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f "recovery/parts/${BUNDLE}.part.000"
+              echo "VM acknowledged server part 000; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgement of server part 000" >&2
+          exit 1
+
+      - name: Upload recovery part 001
+        id: upload_001
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-335-recovery-part-001
+          path: recovery/parts/${{ env.BUNDLE }}.part.001
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Await VM verification 001
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_001.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.server-transfer-acks-20260928/001'
+          for attempt in $(seq 1 360); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-trinitycore-recovery-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f "recovery/parts/${BUNDLE}.part.001"
+              echo "VM acknowledged server part 001; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgement of server part 001" >&2
+          exit 1
+
+      - name: Upload recovery part 002
+        id: upload_002
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-335-recovery-part-002
+          path: recovery/parts/${{ env.BUNDLE }}.part.002
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Await VM verification 002
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload_002.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          ACK='.server-transfer-acks-20260928/002'
+          for attempt in $(seq 1 360); do
+            if gh api "repos/$GITHUB_REPOSITORY/contents/$ACK?ref=chatgpt-trinitycore-recovery-20260928" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+              rm -f "recovery/parts/${BUNDLE}.part.002"
+              echo "VM acknowledged server part 002; artifact deleted."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for VM acknowledgement of server part 002" >&2
+          exit 1
+
+      - name: Transfer complete
+        run: echo 'TrinityCore recovery bundle transferred and acknowledged.'
