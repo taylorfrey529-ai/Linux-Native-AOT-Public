@@ -1,4 +1,4 @@
-name: WoW transfer probe
+name: WoW bootstrap transfer
 
 on:
   push:
@@ -9,17 +9,191 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  package:
     runs-on: ubuntu-24.04
     steps:
-      - name: Create probe
+      - name: Download client data v20
+        shell: bash
         run: |
-          mkdir -p payload
-          printf 'wow-transfer-probe\n' > payload/probe.txt
+          set -euo pipefail
+          mkdir -p source transfer/client transfer/sql
+          curl -fL --retry 8 --retry-delay 2 --retry-all-errors \
+            -o source/Data.zip \
+            https://github.com/wowgaming/client-data/releases/download/v20.0/Data.zip
+          echo "a3d4df635ae6c2c8f08052c32a79e0f806955150ad36b014a823dd08a32a4610  source/Data.zip" | sha256sum -c -
 
-      - name: Upload probe
+      - name: Checkout matching AzerothCore SQL
+        uses: actions/checkout@v7
+        with:
+          repository: azerothcore/azerothcore-wotlk
+          ref: 1c91347c49de65c3fc4c88b811ad2f73cc2246d1
+          path: acore
+          fetch-depth: 1
+
+      - name: Prepare verified chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, tarfile
+          from pathlib import Path
+
+          MIB = 1024 * 1024
+          CHUNK = 220 * MIB
+          HARD = 256 * MIB
+
+          def sha256_file(path):
+              h = hashlib.sha256()
+              with open(path, "rb") as f:
+                  while True:
+                      b = f.read(8 * MIB)
+                      if not b:
+                          break
+                      h.update(b)
+              return h.hexdigest()
+
+          def split_file(source, out, source_kind, source_name, logical_name):
+              out.mkdir(parents=True, exist_ok=True)
+              logical_size = source.stat().st_size
+              logical_sha = sha256_file(source)
+              parts = []
+              with open(source, "rb") as src:
+                  i = 0
+                  while True:
+                      data = src.read(CHUNK)
+                      if not data:
+                          break
+                      name = f"{logical_name}.part.{i:03d}"
+                      p = out / name
+                      p.write_bytes(data)
+                      parts.append({
+                          "index": i,
+                          "name": name,
+                          "size": len(data),
+                          "sha256": sha256_file(p),
+                      })
+                      i += 1
+              manifest = {
+                  "schema_version": 1,
+                  "source_kind": source_kind,
+                  "source_name": source_name,
+                  "logical_name": logical_name,
+                  "logical_size": logical_size,
+                  "logical_sha256": logical_sha,
+                  "chunk_size_bytes": CHUNK,
+                  "hard_transport_limit_bytes": HARD,
+                  "parts": parts,
+              }
+              (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+              print(json.dumps(manifest, indent=2))
+
+          data = Path("source/Data.zip")
+          split_file(data, Path("transfer/client"), "file", "Data.zip", "Data.zip")
+
+          sql_dir = Path("acore/data/sql")
+          sql_archive = Path("source/sql.tar.gz")
+          with tarfile.open(sql_archive, "w:gz") as tf:
+              tf.add(sql_dir, arcname="sql", recursive=True)
+          split_file(sql_archive, Path("transfer/sql"), "directory", "sql", "sql.tar.gz")
+          PY
+          du -sh source/* transfer/*
+
+      - name: Upload client manifest
         uses: actions/upload-artifact@v4
         with:
-          name: wow-transfer-probe
-          path: payload/probe.txt
+          name: wow-client-data-manifest
+          path: transfer/client/manifest.json
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload client part 000
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-data-part-000
+          path: transfer/client/Data.zip.part.000
+          compression-level: 0
+          retention-days: 1
+      - name: Upload client part 001
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-data-part-001
+          path: transfer/client/Data.zip.part.001
+          compression-level: 0
+          retention-days: 1
+      - name: Upload client part 002
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-data-part-002
+          path: transfer/client/Data.zip.part.002
+          compression-level: 0
+          retention-days: 1
+      - name: Upload client part 003
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-data-part-003
+          path: transfer/client/Data.zip.part.003
+          compression-level: 0
+          retention-days: 1
+      - name: Upload client part 004
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-data-part-004
+          path: transfer/client/Data.zip.part.004
+          compression-level: 0
+          retention-days: 1
+      - name: Upload client part 005
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-data-part-005
+          path: transfer/client/Data.zip.part.005
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload SQL manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-sql-manifest
+          path: transfer/sql/manifest.json
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload SQL part 000
+        if: ${{ hashFiles('transfer/sql/sql.tar.gz.part.000') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-sql-part-000
+          path: transfer/sql/sql.tar.gz.part.000
+          compression-level: 0
+          retention-days: 1
+      - name: Upload SQL part 001
+        if: ${{ hashFiles('transfer/sql/sql.tar.gz.part.001') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-sql-part-001
+          path: transfer/sql/sql.tar.gz.part.001
+          compression-level: 0
+          retention-days: 1
+      - name: Upload SQL part 002
+        if: ${{ hashFiles('transfer/sql/sql.tar.gz.part.002') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-sql-part-002
+          path: transfer/sql/sql.tar.gz.part.002
+          compression-level: 0
+          retention-days: 1
+      - name: Upload SQL part 003
+        if: ${{ hashFiles('transfer/sql/sql.tar.gz.part.003') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-sql-part-003
+          path: transfer/sql/sql.tar.gz.part.003
+          compression-level: 0
+          retention-days: 1
+      - name: Upload SQL part 004
+        if: ${{ hashFiles('transfer/sql/sql.tar.gz.part.004') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-sql-part-004
+          path: transfer/sql/sql.tar.gz.part.004
+          compression-level: 0
           retention-days: 1
