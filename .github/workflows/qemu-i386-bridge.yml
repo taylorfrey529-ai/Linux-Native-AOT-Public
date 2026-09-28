@@ -1,0 +1,45 @@
+name: QEMU i386 Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/qemu-i386-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Stage static i386 emulator and probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-user-static gcc-multilib
+          QEMU="$(command -v qemu-i386-static || true)"
+          if [ -z "$QEMU" ]; then
+            QEMU="$(find /usr -type f -name 'qemu-i386-static' -print -quit)"
+          fi
+          test -n "$QEMU"
+          mkdir -p out
+          cp "$QEMU" out/qemu-i386-static
+          cat > probe.c <<'EOF'
+          #include <stdio.h>
+          int main(void){ puts("QEMU_I386_OK"); return 0; }
+          EOF
+          gcc -m32 -static -O2 -s probe.c -o out/probe-i386
+          file out/qemu-i386-static out/probe-i386
+          sha256sum out/* | tee out/SHA256SUMS
+          ./out/qemu-i386-static ./out/probe-i386
+      - name: Upload bridge
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-i386-bridge
+          path: out/
+          compression-level: 0
+          retention-days: 1
