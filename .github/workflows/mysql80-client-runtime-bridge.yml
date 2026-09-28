@@ -1,0 +1,59 @@
+name: MySQL 8 Client Runtime Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/mysql80-client-runtime-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Stage compatible native MySQL client
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends mysql-client-core-8.0 ca-certificates
+          MYSQL="$(command -v mysql)"
+          test -x "$MYSQL"
+          "$MYSQL" --version | tee MYSQL-VERSION.txt
+
+          mkdir -p rootfs
+          : > paths.txt
+          echo "$MYSQL" >> paths.txt
+          ldd "$MYSQL" | awk '/=> \/.* \(0x/ {print $3} /^\// {print $1}' >> paths.txt
+          sort -u paths.txt -o paths.txt
+          while IFS= read -r f; do
+            test -e "$f"
+            dest="rootfs$f"
+            mkdir -p "$(dirname "$dest")"
+            cp -L "$f" "$dest"
+          done < paths.txt
+
+          # Preserve the expected command path inside the portable root.
+          test -x rootfs/usr/bin/mysql
+          tar -cJf mysql80-client-runtime.tar.xz -C rootfs .
+          sha256sum mysql80-client-runtime.tar.xz > SHA256SUMS
+          find rootfs -type f -printf '%p %s\n' | sort > FILES.txt
+          du -sh rootfs
+          stat -c 'archive_bytes=%s' mysql80-client-runtime.tar.xz
+
+      - name: Upload MySQL client runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: mysql80-client-runtime
+          path: |
+            mysql80-client-runtime.tar.xz
+            SHA256SUMS
+            MYSQL-VERSION.txt
+            FILES.txt
+            paths.txt
+          compression-level: 0
+          retention-days: 1
