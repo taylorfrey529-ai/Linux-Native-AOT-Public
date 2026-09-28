@@ -5,7 +5,7 @@ on:
     branches:
       - chatgpt-trinitycore-recovery-20260928
     paths:
-      - .github/workflows/trinitycore-recovery-bundle.yml
+      - .github/workflows/trinitycore-recovery-transfer.yml
   workflow_dispatch:
 
 permissions:
