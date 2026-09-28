@@ -1,0 +1,88 @@
+name: TrinityCore MySQL Server Patch Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/trinitycore-mysql-server-patch-bridge.yml'
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_URL: https://github.com/taylorfrey529-ai/world-of-warcraft-alpha-binary/releases/download/tmp-trinitycore-335-f5f9bac-mysql-server-20260928/trinitycore-335-f5f9bac-mysql-server-patch.tar.gz
+  SOURCE_NAME: trinitycore-335-f5f9bac-mysql-server-patch.tar.gz
+  SOURCE_SIZE: "325828736"
+  SOURCE_SHA256: 048463adef0dc114fe3e49ebff620e650b3aa18a9ad957ba8c0219035545308b
+
+jobs:
+  bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Download split and verify patch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p transfer/parts
+          curl -fL --retry 5 --retry-delay 2 -o "transfer/$SOURCE_NAME" "$SOURCE_URL"
+          test "$(stat -c %s "transfer/$SOURCE_NAME")" = "$SOURCE_SIZE"
+          test "$(sha256sum "transfer/$SOURCE_NAME" | awk '{print $1}')" = "$SOURCE_SHA256"
+          split -b 180M -d -a 3 "transfer/$SOURCE_NAME" "transfer/parts/$SOURCE_NAME.part."
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path("transfer")
+          name=os.environ["SOURCE_NAME"]
+          source=root/name
+          def digest(p):
+              h=hashlib.sha256()
+              with p.open("rb") as f:
+                  for b in iter(lambda:f.read(1024*1024), b""): h.update(b)
+              return h.hexdigest()
+          parts=[]
+          for i,p in enumerate(sorted((root/"parts").glob(name+".part.*"))):
+              parts.append({"index":i,"name":p.name,"size":p.stat().st_size,"sha256":digest(p)})
+          assert len(parts)==2, parts
+          assert sum(x["size"] for x in parts)==source.stat().st_size
+          assert digest(source)==os.environ["SOURCE_SHA256"]
+          manifest={
+              "schema_version":1,
+              "source_kind":"file",
+              "source_name":name,
+              "logical_name":name,
+              "logical_size":source.stat().st_size,
+              "logical_sha256":digest(source),
+              "chunk_size_bytes":180*1024*1024,
+              "hard_transport_limit_bytes":256*1024*1024,
+              "parts":parts,
+          }
+          (root/"manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
+          print(json.dumps(manifest,indent=2))
+          PY
+          rm "transfer/$SOURCE_NAME"
+
+      - name: Upload metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-mysql-server-patch-metadata
+          path: transfer/manifest.json
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload part 000
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-mysql-server-patch-part-000
+          path: transfer/parts/${{ env.SOURCE_NAME }}.part.000
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload part 001
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-mysql-server-patch-part-001
+          path: transfer/parts/${{ env.SOURCE_NAME }}.part.001
+          compression-level: 0
+          retention-days: 1
