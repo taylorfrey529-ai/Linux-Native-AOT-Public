@@ -1,0 +1,49 @@
+name: Wine32 Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/wine32-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact Wine32 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://github.com/Kron4ek/Wine-Builds/releases/download/11.18/wine-11.18-staging-x86.tar.xz'
+          SHA='3e1a99c0fc88a60dcf9cbbe28e1b3e6a27e0ec54c8e0cbfc582dca71b6f3cc70'
+          curl -L --fail --silent --show-error --retry 5 --retry-delay 2 -o wine32.tar.xz "$URL"
+          test "$(sha256sum wine32.tar.xz | awk '{print $1}')" = "$SHA"
+          mkdir inspect
+          tar -xJf wine32.tar.xz -C inspect
+          ROOT="$(find inspect -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$ROOT"
+          file "$ROOT/bin/wine" "$ROOT/bin/wineserver" | tee inspect.txt
+          {
+            echo '--- ldd wine ---'
+            ldd "$ROOT/bin/wine" || true
+            echo '--- ldd wineserver ---'
+            ldd "$ROOT/bin/wineserver" || true
+            echo '--- lib dirs ---'
+            find "$ROOT/lib/wine" -maxdepth 1 -mindepth 1 -type d -printf '%f\n' | sort
+          } >> inspect.txt
+          printf '%s  %s\n' "$SHA" wine32.tar.xz > SHA256SUMS
+      - name: Upload Wine32 bridge
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine32-11.18-staging-x86
+          path: |
+            wine32.tar.xz
+            SHA256SUMS
+            inspect.txt
+          compression-level: 0
+          retention-days: 1
