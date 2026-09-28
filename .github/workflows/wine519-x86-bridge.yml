@@ -1,0 +1,48 @@
+name: Wine 5.19 Staging x86 Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/wine519-x86-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch official Wine 5.19 Staging x86 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://github.com/Kron4ek/Wine-Builds/releases/download/5.19/wine-5.19-staging-x86.tar.xz'
+          curl -L --fail --silent --show-error --retry 5 --retry-delay 2 -o wine519-x86.tar.xz "$URL"
+          sha256sum wine519-x86.tar.xz | tee SHA256SUMS
+          test "$(stat -c %s wine519-x86.tar.xz)" = '25707512'
+          mkdir inspect
+          tar -xJf wine519-x86.tar.xz -C inspect
+          ROOT="$(find inspect -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$ROOT"
+          file "$ROOT/bin/wine" "$ROOT/bin/wineserver" | tee inspect.txt
+          "$ROOT/bin/wine" --version >> inspect.txt || true
+          {
+            echo '--- missing deps ---'
+            for f in "$ROOT/bin/wine" "$ROOT/bin/wineserver" "$ROOT/lib/wine/"*"-unix/"*.so; do
+              test -f "$f" || continue
+              ldd "$f" 2>/dev/null | grep 'not found' || true
+            done
+          } >> inspect.txt
+      - name: Upload Wine 5.19 x86
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine519-staging-x86
+          path: |
+            wine519-x86.tar.xz
+            SHA256SUMS
+            inspect.txt
+          compression-level: 0
+          retention-days: 1
