@@ -1,0 +1,25 @@
+name: WoW transfer probe
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-transfer-20260928
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create probe
+        run: |
+          mkdir -p payload
+          printf 'wow-transfer-probe\n' > payload/probe.txt
+
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-transfer-probe
+          path: payload/probe.txt
+          retention-days: 1
