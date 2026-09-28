@@ -1,0 +1,95 @@
+name: Wine32 Rootfs Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/wine32-rootfs-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Build minimal i386 dependency root
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://github.com/Kron4ek/Wine-Builds/releases/download/11.18/wine-11.18-staging-x86.tar.xz'
+          SHA='3e1a99c0fc88a60dcf9cbbe28e1b3e6a27e0ec54c8e0cbfc582dca71b6f3cc70'
+          curl -L --fail --silent --show-error --retry 5 --retry-delay 2 -o wine32.tar.xz "$URL"
+          test "$(sha256sum wine32.tar.xz | awk '{print $1}')" = "$SHA"
+          mkdir wine32
+          tar -xJf wine32.tar.xz -C wine32 --strip-components=1
+
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends             wine32:i386             libgl1:i386 libglx-mesa0:i386 libgl1-mesa-dri:i386             libasound2t64:i386 libpulse0:i386
+
+          mkdir -p rootfs
+          paths=paths.txt
+          : > "$paths"
+
+          # Resolve linked dependencies from every Unix-side Wine ELF.
+          while IFS= read -r f; do
+            if file "$f" | grep -q 'ELF 32-bit'; then
+              ldd "$f" 2>/dev/null | awk '
+                /=> \/.* \(0x/ {print $3}
+                /^\// {print $1}
+              ' >> "$paths" || true
+            fi
+          done < <(find wine32/bin wine32/lib/wine/i386-unix -type f -print)
+
+          # GLVND/Mesa loads the vendor library and DRI driver dynamically.
+          for f in             /usr/lib/i386-linux-gnu/libGLX_mesa.so.0             /usr/lib/i386-linux-gnu/dri/swrast_dri.so; do
+            test -e "$f"
+            echo "$f" >> "$paths"
+            ldd "$f" 2>/dev/null | awk '
+              /=> \/.* \(0x/ {print $3}
+              /^\// {print $1}
+            ' >> "$paths" || true
+          done
+
+          # Common glibc runtime dlopens used by networking/name resolution.
+          for f in             /lib/ld-linux.so.2             /lib/i386-linux-gnu/libnss_files.so.2             /lib/i386-linux-gnu/libnss_dns.so.2             /lib/i386-linux-gnu/libresolv.so.2; do
+            test -e "$f" && echo "$f" >> "$paths" || true
+          done
+
+          sort -u "$paths" -o "$paths"
+          while IFS= read -r f; do
+            test -e "$f" || { echo "missing resolved path: $f" >&2; exit 2; }
+            dest="rootfs$f"
+            mkdir -p "$(dirname "$dest")"
+            cp -L "$f" "$dest"
+          done < "$paths"
+
+          # Add GLVND metadata if present.
+          if [ -d /usr/share/glvnd ]; then
+            mkdir -p rootfs/usr/share
+            cp -a /usr/share/glvnd rootfs/usr/share/
+          fi
+
+          # Validate closure under qemu-capable style prefix with host IA32 here.
+          find rootfs -type f -printf '%s %p\n' | sort -n | tail -30
+          du -sh rootfs
+          tar -cJf wine32-rootfs.tar.xz -C rootfs .
+          sha256sum wine32-rootfs.tar.xz | tee SHA256SUMS
+          stat -c 'rootfs_archive_bytes=%s' wine32-rootfs.tar.xz
+          # Keep each transport part below 240 MiB.
+          split -b 220M -d -a 3 wine32-rootfs.tar.xz rootfs.part.
+          sha256sum rootfs.part.* > PARTSUMS
+      - name: Upload rootfs parts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine32-rootfs
+          path: |
+            rootfs.part.*
+            SHA256SUMS
+            PARTSUMS
+            paths.txt
+          compression-level: 0
+          retention-days: 1
