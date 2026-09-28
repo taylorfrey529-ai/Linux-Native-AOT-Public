@@ -1,0 +1,42 @@
+name: Wine 11.18 Vanilla WoW64 Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/wine1118-vanilla-wow64-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact Wine 11.18 vanilla amd64-wow64
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://github.com/Kron4ek/Wine-Builds/releases/download/11.18/wine-11.18-amd64-wow64.tar.xz'
+          SHA='f899879b8c37e0b20adca19d147cf77436f3f1a37bf16d08d27fa7137a52b9ba'
+          curl -L --fail --silent --show-error --retry 5 --retry-delay 2 -o wine-11.18-amd64-wow64.tar.xz "$URL"
+          test "$(sha256sum wine-11.18-amd64-wow64.tar.xz | awk '{print $1}')" = "$SHA"
+          printf '%s  %s\n' "$SHA" wine-11.18-amd64-wow64.tar.xz > SHA256SUMS
+          mkdir inspect
+          tar -xJf wine-11.18-amd64-wow64.tar.xz -C inspect
+          ROOT="$(find inspect -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$ROOT"
+          file "$ROOT/bin/wine" "$ROOT/bin/wineserver" "$ROOT/lib/wine/i386-windows/notepad.exe" | tee inspect.txt
+          "$ROOT/bin/wine" --version >> inspect.txt
+      - name: Upload Wine 11.18 vanilla WoW64
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine1118-vanilla-amd64-wow64
+          path: |
+            wine-11.18-amd64-wow64.tar.xz
+            SHA256SUMS
+            inspect.txt
+          compression-level: 0
+          retention-days: 1
