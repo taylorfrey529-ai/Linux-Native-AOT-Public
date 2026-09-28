@@ -1,4 +1,4 @@
-name: WoW Client Transfer Probe
+name: WoW Client Torrent Probe
 
 on:
   push:
@@ -13,62 +13,72 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Probe ChromieCraft client archive
+      - name: Inspect official ChromieCraft torrent
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://chmi.btground.dedyn.io/ChromieCraft_3.3.5a.zip'
-          rm -f headers.txt byte.bin probe.json
-          curl -L --fail --silent --show-error --retry 3 --retry-delay 2             --range 0-0 -D headers.txt -o byte.bin "$URL"
+          URL='https://usefulness.altervista.org/WoW/ChromieCraft_3.3.5a.zip.torrent'
+          curl -L --fail --silent --show-error --retry 3 --retry-delay 2             -A 'Mozilla/5.0' -e 'https://chromiecraft.com/en/downloads/'             -o client.torrent "$URL"
           python3 - <<'PY'
-          import json, re
+          import hashlib, json
           from pathlib import Path
-          text = Path('headers.txt').read_text(errors='replace')
-          blocks = [b for b in re.split(r'\r?\n\r?\n', text) if b.strip()]
-          last = blocks[-1] if blocks else text
-          status = None
-          content_range = None
-          content_length = None
-          accept_ranges = None
-          etag = None
-          last_modified = None
-          for line in last.splitlines():
-              if line.startswith('HTTP/'):
-                  status = line.strip()
-              elif ':' in line:
-                  k,v=line.split(':',1)
-                  k=k.strip().lower(); v=v.strip()
-                  if k=='content-range': content_range=v
-                  elif k=='content-length': content_length=v
-                  elif k=='accept-ranges': accept_ranges=v
-                  elif k=='etag': etag=v
-                  elif k=='last-modified': last_modified=v
-          total = None
-          if content_range:
-              m=re.search(r'/([0-9]+)$', content_range)
-              if m: total=int(m.group(1))
-          if total is None and content_length:
-              total=int(content_length)
+
+          data = Path('client.torrent').read_bytes()
+          i = 0
+          def parse():
+              global i
+              c=data[i:i+1]
+              if c==b'i':
+                  i+=1; j=data.index(b'e',i); n=int(data[i:j]); i=j+1; return n
+              if c==b'l':
+                  i+=1; out=[]
+                  while data[i:i+1]!=b'e': out.append(parse())
+                  i+=1; return out
+              if c==b'd':
+                  i+=1; out={}
+                  while data[i:i+1]!=b'e':
+                      k=parse(); v=parse(); out[k]=v
+                  i+=1; return out
+              if c.isdigit():
+                  j=data.index(b':',i); n=int(data[i:j]); i=j+1; s=data[i:i+n]; i+=n; return s
+              raise ValueError((i,c))
+          root=parse()
+          info=root[b'info']
+          # canonical bencode for exact info-hash
+          def enc(x):
+              if isinstance(x,int): return b'i'+str(x).encode()+b'e'
+              if isinstance(x,bytes): return str(len(x)).encode()+b':'+x
+              if isinstance(x,list): return b'l'+b''.join(enc(v) for v in x)+b'e'
+              if isinstance(x,dict): return b'd'+b''.join(enc(k)+enc(x[k]) for k in sorted(x))+b'e'
+              raise TypeError(type(x))
+          files=[]
+          if b'files' in info:
+              total=0
+              for f in info[b'files']:
+                  n=f[b'length']; total += n
+                  path='/'.join(p.decode('utf-8','replace') for p in f[b'path'])
+                  files.append({'path':path,'length':n})
+          else:
+              total=info[b'length']
+              files=[{'path':info[b'name'].decode('utf-8','replace'),'length':total}]
           out={
-              'source_url':'https://chmi.btground.dedyn.io/ChromieCraft_3.3.5a.zip',
-              'status':status,
-              'content_range':content_range,
-              'content_length':content_length,
-              'accept_ranges':accept_ranges,
-              'etag':etag,
-              'last_modified':last_modified,
-              'total_size_bytes':total,
-              'range_probe_bytes':Path('byte.bin').stat().st_size,
+              'torrent_sha256': hashlib.sha256(data).hexdigest(),
+              'info_hash_sha1': hashlib.sha1(enc(info)).hexdigest(),
+              'name': info.get(b'name',b'').decode('utf-8','replace'),
+              'piece_length': info.get(b'piece length'),
+              'total_size_bytes': total,
+              'file_count': len(files),
+              'files': files[:40]
           }
-          Path('probe.json').write_text(json.dumps(out, indent=2)+'\n')
-          print(json.dumps(out, indent=2))
-          if not content_range or total is None or Path('byte.bin').stat().st_size != 1:
-              raise SystemExit('Server did not honor one-byte range request; refusing chunk transfer.')
+          Path('probe.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
           PY
       - name: Upload probe
         uses: actions/upload-artifact@v4
         with:
-          name: wow-client-probe
-          path: probe.json
+          name: wow-client-torrent-probe
+          path: |
+            probe.json
+            client.torrent
           compression-level: 0
           retention-days: 1
