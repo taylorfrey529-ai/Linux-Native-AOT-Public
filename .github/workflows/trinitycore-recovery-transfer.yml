@@ -29,7 +29,7 @@ jobs:
       - name: Checkout recovery branch
         uses: actions/checkout@v4
         with:
-          ref: ci/trinitycore-recovery-20260928
+          ref: chatgpt-trinitycore-recovery-20260928
 
       - name: Build pinned server and extraction tools
         run: |
