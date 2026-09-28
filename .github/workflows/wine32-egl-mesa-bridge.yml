@@ -1,0 +1,70 @@
+name: Wine32 EGL Mesa Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/wine32-egl-mesa-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Stage i386 Mesa EGL vendor closure
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libegl-mesa0:i386 libgbm1:i386
+
+          EGL=/usr/lib/i386-linux-gnu/libEGL_mesa.so.0
+          GBM=/usr/lib/i386-linux-gnu/libgbm.so.1
+          test -e "$EGL"
+          test -e "$GBM"
+          strings "$EGL" | grep -q 'EGL_KHR_client_get_all_proc_addresses' || true
+
+          mkdir -p rootfs
+          : > paths.txt
+          for f in "$EGL" "$GBM"; do
+            echo "$f" >> paths.txt
+            ldd "$f" | awk '/=> \/.* \(0x/ {print $3} /^\// {print $1}' >> paths.txt
+          done
+          sort -u paths.txt -o paths.txt
+          while IFS= read -r f; do
+            test -e "$f"
+            dest="rootfs$f"
+            mkdir -p "$(dirname "$dest")"
+            cp -L "$f" "$dest"
+          done < paths.txt
+
+          if [ -d /usr/share/glvnd/egl_vendor.d ]; then
+            mkdir -p rootfs/usr/share/glvnd
+            cp -a /usr/share/glvnd/egl_vendor.d rootfs/usr/share/glvnd/
+          fi
+          test -f rootfs/usr/lib/i386-linux-gnu/libEGL_mesa.so.0
+          test -f rootfs/usr/share/glvnd/egl_vendor.d/50_mesa.json
+
+          tar -cJf wine32-egl-mesa.tar.xz -C rootfs .
+          sha256sum wine32-egl-mesa.tar.xz > SHA256SUMS
+          find rootfs -type f -printf '%p %s\n' | sort > FILES.txt
+          cat rootfs/usr/share/glvnd/egl_vendor.d/50_mesa.json
+          du -sh rootfs
+          stat -c 'archive_bytes=%s' wine32-egl-mesa.tar.xz
+
+      - name: Upload EGL Mesa supplement
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine32-egl-mesa
+          path: |
+            wine32-egl-mesa.tar.xz
+            SHA256SUMS
+            FILES.txt
+            paths.txt
+          compression-level: 0
+          retention-days: 1
