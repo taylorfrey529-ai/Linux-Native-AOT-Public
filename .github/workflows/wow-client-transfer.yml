@@ -1,0 +1,74 @@
+name: WoW Client Transfer Probe
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Probe ChromieCraft client archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://chmi.btground.dedyn.io/ChromieCraft_3.3.5a.zip'
+          rm -f headers.txt byte.bin probe.json
+          curl -L --fail --silent --show-error --retry 3 --retry-delay 2             --range 0-0 -D headers.txt -o byte.bin "$URL"
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          text = Path('headers.txt').read_text(errors='replace')
+          blocks = [b for b in re.split(r'\r?\n\r?\n', text) if b.strip()]
+          last = blocks[-1] if blocks else text
+          status = None
+          content_range = None
+          content_length = None
+          accept_ranges = None
+          etag = None
+          last_modified = None
+          for line in last.splitlines():
+              if line.startswith('HTTP/'):
+                  status = line.strip()
+              elif ':' in line:
+                  k,v=line.split(':',1)
+                  k=k.strip().lower(); v=v.strip()
+                  if k=='content-range': content_range=v
+                  elif k=='content-length': content_length=v
+                  elif k=='accept-ranges': accept_ranges=v
+                  elif k=='etag': etag=v
+                  elif k=='last-modified': last_modified=v
+          total = None
+          if content_range:
+              m=re.search(r'/([0-9]+)$', content_range)
+              if m: total=int(m.group(1))
+          if total is None and content_length:
+              total=int(content_length)
+          out={
+              'source_url':'https://chmi.btground.dedyn.io/ChromieCraft_3.3.5a.zip',
+              'status':status,
+              'content_range':content_range,
+              'content_length':content_length,
+              'accept_ranges':accept_ranges,
+              'etag':etag,
+              'last_modified':last_modified,
+              'total_size_bytes':total,
+              'range_probe_bytes':Path('byte.bin').stat().st_size,
+          }
+          Path('probe.json').write_text(json.dumps(out, indent=2)+'\n')
+          print(json.dumps(out, indent=2))
+          if not content_range or total is None or Path('byte.bin').stat().st_size != 1:
+              raise SystemExit('Server did not honor one-byte range request; refusing chunk transfer.')
+          PY
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-probe
+          path: probe.json
+          compression-level: 0
+          retention-days: 1
