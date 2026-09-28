@@ -1,0 +1,52 @@
+name: Wine32 Graphics Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/wine32-graphics-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Build i386 X11 OpenGL supplement
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends             libgl1:i386 libegl1:i386 libglx0:i386 libglvnd0:i386 libopengl0:i386             libxinerama1:i386 libxcomposite1:i386 libxcursor1:i386 libxi6:i386             libxrandr2:i386 libxrender1:i386 libxfixes3:i386 libxext6:i386             libx11-6:i386 libxkbcommon0:i386
+          mkdir -p rootfs
+          : > paths.txt
+          for f in             /usr/lib/i386-linux-gnu/libGL.so.1             /usr/lib/i386-linux-gnu/libEGL.so.1             /usr/lib/i386-linux-gnu/libGLX.so.0             /usr/lib/i386-linux-gnu/libGLdispatch.so.0             /usr/lib/i386-linux-gnu/libOpenGL.so.0             /usr/lib/i386-linux-gnu/libXinerama.so.1             /usr/lib/i386-linux-gnu/libXcomposite.so.1             /usr/lib/i386-linux-gnu/libXcursor.so.1             /usr/lib/i386-linux-gnu/libXi.so.6             /usr/lib/i386-linux-gnu/libXrandr.so.2             /usr/lib/i386-linux-gnu/libXrender.so.1             /usr/lib/i386-linux-gnu/libXfixes.so.3             /usr/lib/i386-linux-gnu/libXext.so.6             /usr/lib/i386-linux-gnu/libX11.so.6             /usr/lib/i386-linux-gnu/libxkbcommon.so.0; do
+            test -e "$f"
+            echo "$f" >> paths.txt
+            ldd "$f" | awk '/=> \/.* \(0x/ {print $3} /^\// {print $1}' >> paths.txt
+          done
+          sort -u paths.txt -o paths.txt
+          while IFS= read -r f; do
+            test -e "$f"
+            d="rootfs$f"
+            mkdir -p "$(dirname "$d")"
+            cp -L "$f" "$d"
+          done < paths.txt
+          tar -cJf wine32-graphics.tar.xz -C rootfs .
+          sha256sum wine32-graphics.tar.xz > SHA256SUMS
+          du -sh rootfs
+          stat -c 'archive_bytes=%s' wine32-graphics.tar.xz
+      - name: Upload graphics runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine32-graphics
+          path: |
+            wine32-graphics.tar.xz
+            SHA256SUMS
+            paths.txt
+          compression-level: 0
+          retention-days: 1
