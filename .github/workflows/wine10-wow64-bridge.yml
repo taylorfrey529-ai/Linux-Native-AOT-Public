@@ -1,0 +1,41 @@
+name: Wine 10 WoW64 Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/wine10-wow64-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact Wine 10 amd64-wow64
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://github.com/Kron4ek/Wine-Builds/releases/download/10.0/wine-10.0-amd64-wow64.tar.xz'
+          SHA='aeebbbf239e548f0136f1cd72a2e109dd9a572a8f703da3c09fa40d74d5c255f'
+          curl -L --fail --silent --show-error --retry 5 --retry-delay 2 -o wine10-wow64.tar.xz "$URL"
+          test "$(sha256sum wine10-wow64.tar.xz | awk '{print $1}')" = "$SHA"
+          printf '%s  %s\n' "$SHA" wine10-wow64.tar.xz > SHA256SUMS
+          mkdir inspect
+          tar -xJf wine10-wow64.tar.xz -C inspect
+          ROOT="$(find inspect -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          file "$ROOT/bin/wine" "$ROOT/bin/wineserver" "$ROOT/lib/wine/i386-windows/notepad.exe" | tee inspect.txt
+          "$ROOT/bin/wine" --version >> inspect.txt
+      - name: Upload Wine 10 WoW64
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine10-amd64-wow64
+          path: |
+            wine10-wow64.tar.xz
+            SHA256SUMS
+            inspect.txt
+          compression-level: 0
+          retention-days: 1
