@@ -1,0 +1,79 @@
+name: TrinityCore Server Recovery Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/trinitycore-server-bridge.yml'
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_BASE: https://github.com/taylorfrey529-ai/world-of-warcraft-alpha-binary/releases/download/tmp-trinitycore-335-f5f9bac-recovery-20260928
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download and verify release payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p payload
+          curl -fL --retry 5 --retry-delay 2 -o payload/manifest.json "$SOURCE_BASE/manifest.json"
+          curl -fL --retry 5 --retry-delay 2 -o payload/BUNDLE.sha256 "$SOURCE_BASE/BUNDLE.sha256"
+          for n in 000 001 002; do
+            curl -fL --retry 5 --retry-delay 2               -o "payload/trinitycore-335-f5f9bac-recovery-bundle.tar.gz.part.$n"               "$SOURCE_BASE/trinitycore-335-f5f9bac-recovery-bundle.tar.gz.part.$n"
+          done
+          test "$(sha256sum payload/manifest.json | awk '{print $1}')" = "a3e44ee0e2dd18aecc5d134f6ecb6b2520c379cf1d1ff0acf90e6cba77c6771e"
+          test "$(sha256sum payload/BUNDLE.sha256 | awk '{print $1}')" = "501c2efce7bdc59e8e70e0c925497f74a87c5ed67491fe06374654a99fbb4405"
+          test "$(sha256sum payload/trinitycore-335-f5f9bac-recovery-bundle.tar.gz.part.000 | awk '{print $1}')" = "2ff46a026667369e2eb951d87b91949d74a471d65b66fb3a0c8ec61f6e4e8b40"
+          test "$(sha256sum payload/trinitycore-335-f5f9bac-recovery-bundle.tar.gz.part.001 | awk '{print $1}')" = "e2fb67f36d2fb1059e9e461667cfd5567ecdcf4b58f0b14e82bfe6482c4bd755"
+          test "$(sha256sum payload/trinitycore-335-f5f9bac-recovery-bundle.tar.gz.part.002 | awk '{print $1}')" = "a0e3ea59e071227741df8b8712e5382769caa2feb12da96b8a9bad160f00c876"
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path("payload")
+          m=json.loads((root/"manifest.json").read_text())
+          total=0
+          for p in m["parts"]:
+              f=root/p["name"]
+              assert f.stat().st_size == p["size"], p["name"]
+              assert hashlib.sha256(f.read_bytes()).hexdigest() == p["sha256"], p["name"]
+              total += p["size"]
+          assert total == m["logical_size"]
+          print("manifest verification OK", len(m["parts"]), total, m["logical_sha256"])
+          PY
+      - name: Upload metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-recovery-metadata
+          path: |
+            payload/manifest.json
+            payload/BUNDLE.sha256
+          compression-level: 0
+          retention-days: 1
+      - name: Upload part 000
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-recovery-part-000
+          path: payload/trinitycore-335-f5f9bac-recovery-bundle.tar.gz.part.000
+          compression-level: 0
+          retention-days: 1
+      - name: Upload part 001
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-recovery-part-001
+          path: payload/trinitycore-335-f5f9bac-recovery-bundle.tar.gz.part.001
+          compression-level: 0
+          retention-days: 1
+      - name: Upload part 002
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinitycore-recovery-part-002
+          path: payload/trinitycore-335-f5f9bac-recovery-bundle.tar.gz.part.002
+          compression-level: 0
+          retention-days: 1
