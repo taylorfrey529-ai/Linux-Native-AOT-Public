@@ -1,4 +1,4 @@
-name: WoW Client Torrent Probe
+name: WoW Client Mirror Resolve
 
 on:
   push:
@@ -9,76 +9,14 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  resolve:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
-      - name: Inspect official ChromieCraft torrent
+      - name: Resolve ChromieCraft mirror hosts
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://usefulness.altervista.org/WoW/ChromieCraft_3.3.5a.zip.torrent'
-          curl -L --fail --silent --show-error --retry 3 --retry-delay 2             -A 'Mozilla/5.0' -e 'https://chromiecraft.com/en/downloads/'             -o client.torrent "$URL"
-          python3 - <<'PY'
-          import hashlib, json
-          from pathlib import Path
-
-          data = Path('client.torrent').read_bytes()
-          i = 0
-          def parse():
-              global i
-              c=data[i:i+1]
-              if c==b'i':
-                  i+=1; j=data.index(b'e',i); n=int(data[i:j]); i=j+1; return n
-              if c==b'l':
-                  i+=1; out=[]
-                  while data[i:i+1]!=b'e': out.append(parse())
-                  i+=1; return out
-              if c==b'd':
-                  i+=1; out={}
-                  while data[i:i+1]!=b'e':
-                      k=parse(); v=parse(); out[k]=v
-                  i+=1; return out
-              if c.isdigit():
-                  j=data.index(b':',i); n=int(data[i:j]); i=j+1; s=data[i:i+n]; i+=n; return s
-              raise ValueError((i,c))
-          root=parse()
-          info=root[b'info']
-          # canonical bencode for exact info-hash
-          def enc(x):
-              if isinstance(x,int): return b'i'+str(x).encode()+b'e'
-              if isinstance(x,bytes): return str(len(x)).encode()+b':'+x
-              if isinstance(x,list): return b'l'+b''.join(enc(v) for v in x)+b'e'
-              if isinstance(x,dict): return b'd'+b''.join(enc(k)+enc(x[k]) for k in sorted(x))+b'e'
-              raise TypeError(type(x))
-          files=[]
-          if b'files' in info:
-              total=0
-              for f in info[b'files']:
-                  n=f[b'length']; total += n
-                  path='/'.join(p.decode('utf-8','replace') for p in f[b'path'])
-                  files.append({'path':path,'length':n})
-          else:
-              total=info[b'length']
-              files=[{'path':info[b'name'].decode('utf-8','replace'),'length':total}]
-          out={
-              'torrent_sha256': hashlib.sha256(data).hexdigest(),
-              'info_hash_sha1': hashlib.sha1(enc(info)).hexdigest(),
-              'name': info.get(b'name',b'').decode('utf-8','replace'),
-              'piece_length': info.get(b'piece length'),
-              'total_size_bytes': total,
-              'file_count': len(files),
-              'files': files[:40]
-          }
-          Path('probe.json').write_text(json.dumps(out,indent=2)+'\n')
-          print(json.dumps(out,indent=2))
-          PY
-      - name: Upload probe
-        uses: actions/upload-artifact@v4
-        with:
-          name: wow-client-torrent-probe
-          path: |
-            probe.json
-            client.torrent
-          compression-level: 0
-          retention-days: 1
+          for h in chmi.btground.dedyn.io usefulness.altervista.org btground.dedyn.io; do
+            echo "HOST=$h"
+            getent ahostsv4 "$h" | awk '{print $1}' | sort -u
+          done
