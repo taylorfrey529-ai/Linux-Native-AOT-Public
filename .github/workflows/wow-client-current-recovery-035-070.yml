@@ -1,0 +1,995 @@
+name: WoW Client Rehydrate Recover 035-070
+
+on:
+  push:
+    branches:
+      - chatgpt-wow-client-transfer-20260928
+    paths:
+      - '.github/workflows/wow-client-current-recovery-035-070.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Prepare runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2
+          df -h /
+      - name: Download and verify ChromieCraft source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source transfer
+          curl -L --fail --silent --show-error --retry 5 --retry-delay 3 \
+            -A 'Mozilla/5.0' -e 'https://chromiecraft.com/en/downloads/' \
+            -o client.torrent 'https://usefulness.altervista.org/WoW/ChromieCraft_3.3.5a.zip.torrent'
+          test "$(sha256sum client.torrent | awk '{print $1}')" = '58731d43da3e615fbeb489ebd7a9401a8b56eeed8b7baf72f6b57646c574f62e'
+          aria2c --dir=source --seed-time=0 --file-allocation=none --allow-overwrite=true \
+            --auto-file-renaming=false --check-integrity=true --bt-enable-lpd=false \
+            --enable-dht=true --enable-dht6=false --bt-stop-timeout=600 --summary-interval=60 \
+            client.torrent
+          test -f source/ChromieCraft_3.3.5a.zip
+          test "$(stat -c %s source/ChromieCraft_3.3.5a.zip)" = '17674749792'
+          test "$(sha256sum source/ChromieCraft_3.3.5a.zip | awk '{print $1}')" = 'fed612104085999e8875f077a5ed1e055aac7faaab413a33fed6a23bc2339732'
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          src=Path('source/ChromieCraft_3.3.5a.zip')
+          chunk=240*1024*1024
+          parts=[]; offset=0
+          with src.open('rb') as f:
+              i=0
+              while True:
+                  data=f.read(chunk)
+                  if not data: break
+                  parts.append({'index':i,'name':f'payload.part.{i:03d}','offset':offset,'size':len(data),'sha256':hashlib.sha256(data).hexdigest()})
+                  offset += len(data); i += 1
+          m={'logical_name':src.name,'size':src.stat().st_size,'sha256':'fed612104085999e8875f077a5ed1e055aac7faaab413a33fed6a23bc2339732','chunk_size':chunk,'parts':parts}
+          assert len(parts)==71 and offset==17674749792
+          Path('manifest.json').write_text(json.dumps(m,indent=2)+'\n')
+          PY
+      - name: Prepare part 035
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 35 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 035
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-035
+          path: |
+            transfer/payload.part.035
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 035
+        shell: bash
+        run: rm -f transfer/payload.part.035
+      - name: Prepare part 036
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 36 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 036
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-036
+          path: |
+            transfer/payload.part.036
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 036
+        shell: bash
+        run: rm -f transfer/payload.part.036
+      - name: Prepare part 037
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 37 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 037
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-037
+          path: |
+            transfer/payload.part.037
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 037
+        shell: bash
+        run: rm -f transfer/payload.part.037
+      - name: Prepare part 038
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 38 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 038
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-038
+          path: |
+            transfer/payload.part.038
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 038
+        shell: bash
+        run: rm -f transfer/payload.part.038
+      - name: Prepare part 039
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 39 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 039
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-039
+          path: |
+            transfer/payload.part.039
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 039
+        shell: bash
+        run: rm -f transfer/payload.part.039
+      - name: Prepare part 040
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 40 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 040
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-040
+          path: |
+            transfer/payload.part.040
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 040
+        shell: bash
+        run: rm -f transfer/payload.part.040
+      - name: Prepare part 041
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 41 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 041
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-041
+          path: |
+            transfer/payload.part.041
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 041
+        shell: bash
+        run: rm -f transfer/payload.part.041
+      - name: Prepare part 042
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 42 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 042
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-042
+          path: |
+            transfer/payload.part.042
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 042
+        shell: bash
+        run: rm -f transfer/payload.part.042
+      - name: Prepare part 043
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 43 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 043
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-043
+          path: |
+            transfer/payload.part.043
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 043
+        shell: bash
+        run: rm -f transfer/payload.part.043
+      - name: Prepare part 044
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 44 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 044
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-044
+          path: |
+            transfer/payload.part.044
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 044
+        shell: bash
+        run: rm -f transfer/payload.part.044
+      - name: Prepare part 045
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 45 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 045
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-045
+          path: |
+            transfer/payload.part.045
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 045
+        shell: bash
+        run: rm -f transfer/payload.part.045
+      - name: Prepare part 046
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 46 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 046
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-046
+          path: |
+            transfer/payload.part.046
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 046
+        shell: bash
+        run: rm -f transfer/payload.part.046
+      - name: Prepare part 047
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 47 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 047
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-047
+          path: |
+            transfer/payload.part.047
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 047
+        shell: bash
+        run: rm -f transfer/payload.part.047
+      - name: Prepare part 048
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 48 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 048
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-048
+          path: |
+            transfer/payload.part.048
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 048
+        shell: bash
+        run: rm -f transfer/payload.part.048
+      - name: Prepare part 049
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 49 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 049
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-049
+          path: |
+            transfer/payload.part.049
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 049
+        shell: bash
+        run: rm -f transfer/payload.part.049
+      - name: Prepare part 050
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 50 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 050
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-050
+          path: |
+            transfer/payload.part.050
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 050
+        shell: bash
+        run: rm -f transfer/payload.part.050
+      - name: Prepare part 051
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 51 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 051
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-051
+          path: |
+            transfer/payload.part.051
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 051
+        shell: bash
+        run: rm -f transfer/payload.part.051
+      - name: Prepare part 052
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 52 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 052
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-052
+          path: |
+            transfer/payload.part.052
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 052
+        shell: bash
+        run: rm -f transfer/payload.part.052
+      - name: Prepare part 053
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 53 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 053
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-053
+          path: |
+            transfer/payload.part.053
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 053
+        shell: bash
+        run: rm -f transfer/payload.part.053
+      - name: Prepare part 054
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 54 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 054
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-054
+          path: |
+            transfer/payload.part.054
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 054
+        shell: bash
+        run: rm -f transfer/payload.part.054
+      - name: Prepare part 055
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 55 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 055
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-055
+          path: |
+            transfer/payload.part.055
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 055
+        shell: bash
+        run: rm -f transfer/payload.part.055
+      - name: Prepare part 056
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 56 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 056
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-056
+          path: |
+            transfer/payload.part.056
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 056
+        shell: bash
+        run: rm -f transfer/payload.part.056
+      - name: Prepare part 057
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 57 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 057
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-057
+          path: |
+            transfer/payload.part.057
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 057
+        shell: bash
+        run: rm -f transfer/payload.part.057
+      - name: Prepare part 058
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 58 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 058
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-058
+          path: |
+            transfer/payload.part.058
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 058
+        shell: bash
+        run: rm -f transfer/payload.part.058
+      - name: Prepare part 059
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 59 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 059
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-059
+          path: |
+            transfer/payload.part.059
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 059
+        shell: bash
+        run: rm -f transfer/payload.part.059
+      - name: Prepare part 060
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 60 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 060
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-060
+          path: |
+            transfer/payload.part.060
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 060
+        shell: bash
+        run: rm -f transfer/payload.part.060
+      - name: Prepare part 061
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 61 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 061
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-061
+          path: |
+            transfer/payload.part.061
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 061
+        shell: bash
+        run: rm -f transfer/payload.part.061
+      - name: Prepare part 062
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 62 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 062
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-062
+          path: |
+            transfer/payload.part.062
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 062
+        shell: bash
+        run: rm -f transfer/payload.part.062
+      - name: Prepare part 063
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 63 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 063
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-063
+          path: |
+            transfer/payload.part.063
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 063
+        shell: bash
+        run: rm -f transfer/payload.part.063
+      - name: Prepare part 064
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 64 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 064
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-064
+          path: |
+            transfer/payload.part.064
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 064
+        shell: bash
+        run: rm -f transfer/payload.part.064
+      - name: Prepare part 065
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 65 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 065
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-065
+          path: |
+            transfer/payload.part.065
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 065
+        shell: bash
+        run: rm -f transfer/payload.part.065
+      - name: Prepare part 066
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 66 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 066
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-066
+          path: |
+            transfer/payload.part.066
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 066
+        shell: bash
+        run: rm -f transfer/payload.part.066
+      - name: Prepare part 067
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 67 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 067
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-067
+          path: |
+            transfer/payload.part.067
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 067
+        shell: bash
+        run: rm -f transfer/payload.part.067
+      - name: Prepare part 068
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 68 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 068
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-068
+          path: |
+            transfer/payload.part.068
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 068
+        shell: bash
+        run: rm -f transfer/payload.part.068
+      - name: Prepare part 069
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 69 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 069
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-069
+          path: |
+            transfer/payload.part.069
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 069
+        shell: bash
+        run: rm -f transfer/payload.part.069
+      - name: Prepare part 070
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - 70 <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          idx=int(sys.argv[1]); m=json.loads(Path('manifest.json').read_text()); part=m['parts'][idx]
+          src=Path('source/ChromieCraft_3.3.5a.zip'); out=Path('transfer')/part['name']
+          with src.open('rb') as f:
+              f.seek(part['offset']); data=f.read(part['size'])
+          assert len(data)==part['size'] and hashlib.sha256(data).hexdigest()==part['sha256']
+          out.write_bytes(data)
+          PY
+      - name: Upload part 070
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-client-rehydrate-part-070
+          path: |
+            transfer/payload.part.070
+            manifest.json
+          compression-level: 0
+          retention-days: 1
+      - name: Remove local part 070
+        shell: bash
+        run: rm -f transfer/payload.part.070
